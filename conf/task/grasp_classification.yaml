@@ -1,0 +1,7 @@
+# @package task
+defaults:
+  - /task/default
+  - override /data@_group_: grasp_classification/default
+  - override /models@_group_: segmentation/default
+
+name: grasp_classification
