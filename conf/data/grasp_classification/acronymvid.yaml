@@ -1,0 +1,10 @@
+# @package data
+defaults:
+    - grasp_classification/default
+
+task: grasp_classification
+class: acronymvid.AcronymVidDataset
+name: acronymvid
+dataroot: /home/tim/Research/GraspRefinement/data
+process_workers: 8
+
