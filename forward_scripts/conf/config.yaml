@@ -1,13 +1,14 @@
 num_workers: 2
 batch_size: 16
-cuda: 0
-weight_name: "miou" # Used during resume, select with model to load from [miou, macc, acc..., latest]
+cuda: 1
+weight_name: "latest" # Used during resume, select with model to load from [miou, macc, acc..., latest]
 enable_cudnn: True
-checkpoint_dir: "/home/nicolas/deeppointcloud-benchmarks/outputs/2020-02-24/15-02-47" # "{your_path}/outputs/2020-01-28/11-04-13" for example
-model_name: TOTO
+# checkpoint_dir: "/home/nicolas/deeppointcloud-benchmarks/outputs/2020-02-24/15-02-47" # "{your_path}/outputs/2020-01-28/11-04-13" for example
+checkpoint_dir: "/home/tim/Research/torch-points3d/outputs/2021-08-03/17-40-17"
+model_name: pointnet2_charlesssg
 enable_dropout: False
-output_path: "/home/nicolas/deeppointcloud-benchmarks/forward_scripts/out" # Where the output goes
-input_path: "/home/nicolas/deeppointcloud-benchmarks/forward_scripts/test_data" # Folder where to find the data
+output_path: "/home/tim/Research/torch-points3d/forward_scripts/out" # Where the output goes
+input_path: "/home/tim/Research/torch-points3d/data/shapenet/processed" # Folder where to find the data
 
 # Dataset specific
 defaults:
