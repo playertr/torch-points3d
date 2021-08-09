@@ -15,9 +15,21 @@ class AcronymVidDataset(BaseDataset):
 
         process_workers: int = dataset_opt.process_workers if dataset_opt.process_workers else 0
 
-        self.train_dataset = GraspDataset(self._data_path, split="train", process_workers=process_workers)
+        self.train_dataset = GraspDataset(self._data_path, 
+        split="train", 
+        process_workers=process_workers,
+        pre_transform=self.pre_transform,
+        transform=self.train_transform,
+        pre_filter=self.pre_filter
+        )
 
-        self.test_dataset = GraspDataset(self._data_path, split="test", process_workers=process_workers)
+        self.test_dataset = GraspDataset(self._data_path, 
+        split="test", 
+        process_workers=process_workers,
+        pre_transform=self.pre_transform,
+        transform=self.train_transform,
+        pre_filter=self.pre_filter
+        )
 
     def get_tracker(self, wandb_log: bool, tensorboard_log: bool):
         """Factory method for the tracker
@@ -37,7 +49,7 @@ class GraspDataset(Dataset):
 
     AVAILABLE_SPLITS = ["train", "val", "test"]
 
-    def __init__(self, root, split="train", transform=None, process_workers=1, pre_transform=None):
+    def __init__(self, root, split="train", transform=None, process_workers=1,  pre_transform=None, pre_filter=None):
 
         self.use_multiprocessing = process_workers > 1
         self.process_workers = process_workers
@@ -56,7 +68,7 @@ class GraspDataset(Dataset):
                 keys = {k for k in ds.keys() if k.startswith('pitch')} # a Set
             self._trajectories += [(k, path) for k in keys]
 
-        super().__init__(root, transform=transform, pre_transform=pre_transform)
+        super().__init__(root, transform=transform, pre_transform=pre_transform, pre_filter=pre_filter)
 
     def download(self):
         if len(os.listdir(self.raw_dir)) == 0:
@@ -82,8 +94,10 @@ class GraspDataset(Dataset):
         pcs = [depth_to_pointcloud(d) for d in depth]
         pcs = multi_pointcloud_to_4d_coords(pcs)
 
+        coords4d = torch.Tensor(pcs)
         data = Data(
-            coords=torch.Tensor(pcs), 
+            time=coords4d[:,0],     # First col is time
+            pos = coords4d[:, 1:],  # Last 3 cols are x, y, z
             x=torch.ones((len(pcs), 1)), 
             y=torch.Tensor(labels).view(-1 ,1)
         )

@@ -29,10 +29,14 @@ class Minkowski_Baseline_Model(BaseModel):
         # self.input = ME.SparseTensor(features=data.x, coordinates=coords, device=device)
         # self.labels = data.y.to(device)
 
-        voxel_size = 0.02
+        # voxel_size = 0.02
 
         torch.cuda.empty_cache()
-        coords = ME.utils.batched_coordinates([data.coords / voxel_size], device=self.device)
+
+        coords = torch.cat([data.batch.reshape(-1, 1), data.time.reshape(-1, 1), data.coords], dim=1).int()
+
+        # check for data.time and data.coords and data.pos
+        # coords = ME.utils.batched_coordinates([data.coords / voxel_size], device=self.device)
         features = data.x.to(device=self.device)
         torch.cuda.empty_cache()
 
@@ -85,8 +89,9 @@ class Minkowski_Baseline_Model(BaseModel):
         # torch.cuda.empty_cache()
 
         torch.cuda.empty_cache()
-
-        self.output = self.model(self.input).slice(self.input).F
+        self.output = self.model(self.input)
+        torch.cuda.empty_cache()
+        self.output = self.output.slice(self.input).F
 
         torch.cuda.empty_cache()
 
