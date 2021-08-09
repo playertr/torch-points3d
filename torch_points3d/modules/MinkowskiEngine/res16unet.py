@@ -604,6 +604,10 @@ class STRes16UNet14(STRes16UNetBase, Res16UNet14):
 class STRes16UNet14A(STRes16UNetBase, Res16UNet14A):
     pass
 
+class STRes16UNet14B(Res16UNet14B): # Tim
+    CONV_TYPE = ConvType.SPATIO_TEMPORAL_HYPERCROSS
+    pass
+
 
 class STRes16UNet18(STRes16UNetBase, Res16UNet18):
     pass
