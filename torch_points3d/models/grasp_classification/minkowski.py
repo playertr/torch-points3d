@@ -31,6 +31,8 @@ class Minkowski_Baseline_Model(BaseModel):
 
         # voxel_size = 0.02
 
+        self.data = data # store data as instance variable in RAM for visualization
+
         torch.cuda.empty_cache()
 
         coords = torch.cat([data.batch.reshape(-1, 1), data.time.reshape(-1, 1), data.coords], dim=1).int()
@@ -91,14 +93,14 @@ class Minkowski_Baseline_Model(BaseModel):
         torch.cuda.empty_cache()
         self.output = self.model(self.input)
         torch.cuda.empty_cache()
-        self.output = self.output.slice(self.input).F
+        self.output = self.output.slice(self.input)
 
         torch.cuda.empty_cache()
 
         if self._weight_classes is not None:
             self._weight_classes = self._weight_classes.to(self.device)
         if self.labels is not None:
-            self.loss_seg = F.binary_cross_entropy_with_logits(self.output, self.labels)
+            self.loss_seg = F.binary_cross_entropy_with_logits(self.output.F, self.labels)
 
         torch.cuda.empty_cache()
 

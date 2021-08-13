@@ -150,8 +150,17 @@ Res16UNet34B:
   model_name: "Res16UNet34B"
   D: 4
 
+Res16UNet34C:
+  class: minkowski.Minkowski_Baseline_Model
+  conv_type: "SPARSE"
+  model_name: "Res16UNet34C"
+  extra_options:
+    conv1_kernel_size: 5
+
 STRes16UNet14B:
   class: minkowski.Minkowski_Baseline_Model
   conv_type: "SPARSE"
   model_name: "STRes16UNet14B"
   D: 4
+  extra_options:
+    conv1_kernel_size: 5

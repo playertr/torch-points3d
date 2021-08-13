@@ -7,7 +7,7 @@ class: acronymvid.AcronymVidDataset
 name: acronymvid
 dataroot: /home/tim/Research/GraspRefinement/data
 process_workers: 8
-apply_rotation: True
+apply_rotation: False
 grid_size: 0.01
 mode: "last"
 

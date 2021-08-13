@@ -8,6 +8,7 @@ import numpy as np
 import torch
 
 from torch_geometric.data import Dataset, Data
+import sys
 
 class AcronymVidDataset(BaseDataset):
     def __init__(self, dataset_opt):
@@ -86,20 +87,53 @@ class GraspDataset(Dataset):
             # whether a given pixel's 3D point is within data_generation.params.EPSILON of a positive grasp contact.
             depth = np.asarray(ds[traj_name]["depth"])
             labels = np.asarray(ds[traj_name]["grasp_labels"])
+            nearest_grasp_idxs = np.asarray(ds[traj_name]["nearest_grasp_idx"])
+            success = np.asarray(ds["grasps/qualities/flex/object_in_gripper"])
+            pos_grasp_tfs = np.asarray(ds["grasps/transforms"])[success==1]
+            tfs_from_cam_to_obj = np.asarray(ds[traj_name]["tf_from_cam_to_obj"])
+            grasp_contact_points = np.asarray(ds["grasps/contact_points"])
 
-        # make data shorter
+        # make data shorter via temporal decimation
         depth = depth[::3, :, :]
         labels = labels[::3, :, :]
 
         pcs = [depth_to_pointcloud(d) for d in depth]
         pcs = multi_pointcloud_to_4d_coords(pcs)
 
+        # Calculate gripper widths
+        # cp = grasp_contact_points
+        # widths = np.linalg.norm(cp[:,0,:] - cp[:,1,:], axis=1)
+
+
+        # Generate camera-frame grasp poses corresponding to closest points
+        sys.path.insert(0, "/home/tim/Research/GraspRefinement")
+        from generate_data.trajectory_vid import inverse_homo
+        obj_frame_grasp_tfs = pos_grasp_tfs # (2000, 4, 4)
+        tfs_from_obj_to_cam = np.array([inverse_homo(t) for t in tfs_from_cam_to_obj])
+
+        # Gross numpy broadcasting
+        # https://stackoverflow.com/questions/32171917/copy-2d-array-into-3rd-dimension-n-times-python
+        cam_frame_grasp_tfs =  np.matmul(tfs_from_obj_to_cam[:,np.newaxis,:,:], obj_frame_grasp_tfs[np.newaxis,:,:,:])
+        # (30, 2000, 4, 4)
+
+
+        # Create 3D tensor of (num_good_grasps, 5, 3) control points
+        sys.path.insert(0, "/home/tim/Research/contact_graspnet")
+        from contact_graspnet.mesh_utils import create_gripper
+        gripper = create_gripper('panda')
+        gripper_control_points = gripper.get_control_point_tensor(pos_grasp_tfs.shape[0], use_tf=False) # num_gt_grasps x 5 x 3
+
+        gripper_control_points_homog =  np.concatenate([gripper_control_points, np.ones((gripper_control_points.shape[0], gripper_control_points.shape[1], 1))], axis=2)  # b x 5 x 4
+
+        control_points = np.matmul(gripper_control_points_homog, cam_frame_grasp_tfs.transpose((0, 1, 3, 2)))[:,:,:,:3]
+
         coords4d = torch.Tensor(pcs)
         data = Data(
             time=coords4d[:,0],     # First col is time
             pos = coords4d[:, 1:],  # Last 3 cols are x, y, z
             x=torch.ones((len(pcs), 1)), 
-            y=torch.Tensor(labels).view(-1 ,1)
+            y=torch.Tensor(labels).view(-1 ,1),
+            pos_control_points = control_points
         )
 
         return data
@@ -159,6 +193,20 @@ def depth_to_pointcloud(depth, fov=np.pi/6):
     world_z = depth[y, x]
 
     return np.vstack((world_x, world_y, world_z)).T
+
+def inverse_homo(tf):
+    """Compute inverse of homogeneous transformation matrix.
+
+    The matrix should have entries
+    [[R,       Rt]
+     [0, 0, 0, 1]].
+    """
+    R = tf[0:3, 0:3]
+    t = R.T @ tf[0:3, 3].reshape(3, 1)
+    return np.block([
+        [R.T, -t],
+        [0, 0, 0, 1]
+    ])
 
 if __name__ == "__main__":
     # Test loading dataset.
