@@ -164,3 +164,12 @@ STRes16UNet14B:
   D: 4
   extra_options:
     conv1_kernel_size: 5
+
+GraspSTRes16UNet14B:
+  class: minkowski_graspnet.Minkowski_Baseline_Model
+  conv_type: "SPARSE"
+  model_name: "STRes16UNet14B"
+  D: 4
+  backbone_out_dim: 8
+  extra_options:
+    conv1_kernel_size: 5
