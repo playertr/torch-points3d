@@ -3,6 +3,13 @@ import torch
 import random
 from torch_points3d.core.data_transform.features import PCACompute, compute_planarity
 
+class SaturatedLabelsFilter(object):
+    """Return whether there label is saturated in Tim's modified ACRONYM dataset items."""
+    def __call__(self, data):
+        return not data.y.sum() == data.y.shape[0]
+
+    def __repr__(self):
+        return "PosControlPointFilter to remove items without positive labels."
 
 class FCompose(object):
     """
@@ -33,7 +40,6 @@ class FCompose(object):
             rep = rep + filt.__repr__() + ", "
         rep = rep + "])"
         return rep
-
 
 class PlanarityFilter(object):
     """

@@ -8,8 +8,11 @@ name: acronymvid
 dataroot: /home/tim/Research/GraspRefinement/data
 process_workers: 8
 apply_rotation: False
-grid_size: 0.01
+grid_size: 0.05
 mode: "last"
+
+pre_filters:
+  - filter: SaturatedLabelsFilter
 
 train_pre_batch_collate_transform:
   - transform: ClampBatchSize
