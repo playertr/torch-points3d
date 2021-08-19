@@ -10,6 +10,7 @@ import torch
 from torch_geometric.data import Dataset, Data
 import sys
 
+
 def inverse_homo(tf):
     """Compute inverse of homogeneous transformation matrix.
 
@@ -133,7 +134,7 @@ class GraspDataset(Dataset):
 
 
         # Create 3D tensor of (num_good_grasps, 5, 3) control points
-        gripper = create_gripper('panda')
+        gripper = create_gripper('panda', root_folder=self.root)
         gripper_control_points = gripper.get_control_point_tensor(max(1, pos_grasp_tfs.shape[0]), use_tf=False) # num_gt_grasps x 5 x 3
 
         gripper_control_points_homog =  np.concatenate([gripper_control_points, np.ones((gripper_control_points.shape[0], gripper_control_points.shape[1], 1))], axis=2)  # b x 5 x 4
