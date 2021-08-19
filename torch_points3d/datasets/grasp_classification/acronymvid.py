@@ -10,11 +10,21 @@ import torch
 from torch_geometric.data import Dataset, Data
 import sys
 
-sys.path.insert(0, "/home/tim/Research/GraspRefinement")
-from generate_data.trajectory_vid import inverse_homo
+def inverse_homo(tf):
+    """Compute inverse of homogeneous transformation matrix.
 
-sys.path.insert(0, "/home/tim/Research/contact_graspnet")
-from contact_graspnet.mesh_utils import create_gripper
+    The matrix should have entries
+    [[R,       Rt]
+     [0, 0, 0, 1]].
+    """
+    R = tf[0:3, 0:3]
+    t = R.T @ tf[0:3, 3].reshape(3, 1)
+    return np.block([
+        [R.T, -t],
+        [0, 0, 0, 1]
+    ])
+
+from torch_points3d.utils.mesh_utils import create_gripper
 
 class AcronymVidDataset(BaseDataset):
     def __init__(self, dataset_opt):
