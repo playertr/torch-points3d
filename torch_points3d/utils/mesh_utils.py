@@ -14,7 +14,7 @@ from tqdm import tqdm
 import trimesh
 import trimesh.transformations as tra
 
-import tensorflow.compat.v1 as tf
+# import tensorflow.compat.v1 as tf
 
 class Object(object):
     """Represents a graspable object."""
@@ -68,7 +68,7 @@ class Object(object):
 class PandaGripper(object):
     """An object representing a Franka Panda gripper."""
 
-    def __init__(self, q=None, num_contact_points_per_finger=10, root_folder=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))):
+    def __init__(self, q=None, num_contact_points_per_finger=10, root_folder=os.path.dirname(os.path.abspath(__file__))):
         """Create a Franka Panda parallel-yaw gripper object.
 
         Keyword Arguments:
@@ -165,8 +165,8 @@ class PandaGripper(object):
             control_points[1:3, 2] = 0.0584
         control_points = np.tile(np.expand_dims(control_points, 0), [batch_size, 1, 1])
 
-        if use_tf:
-            return tf.convert_to_tensor(control_points)
+        # if use_tf:
+        #     return tf.convert_to_tensor(control_points)
 
         return control_points
 
