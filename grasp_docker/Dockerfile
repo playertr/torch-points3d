@@ -21,16 +21,17 @@ SHELL ["/bin/bash", "--login", "-c"]
 
 # Install miniconda
 # https://towardsdatascience.com/conda-pip-and-docker-ftw-d64fe638dc45
+ENV CONDA_DIR=${WORKDIR}/miniconda3
 RUN wget --quiet \
     https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh \
-    && bash Miniconda3-latest-Linux-x86_64.sh -b \
+    && bash Miniconda3-latest-Linux-x86_64.sh -b -p ${CONDA_DIR}\
     && rm -f Miniconda3-latest-Linux-x86_64.sh 
 
 # make non-activate conda commands available
-ENV PATH=/root/miniconda3/bin:$PATH
+ENV PATH=${CONDA_DIR}/bin:$PATH
 
 # make conda activate command available
-RUN echo ". /root/miniconda3/etc/profile.d/conda.sh" >> ~/.profile \
+RUN echo ". /${CONDA_DIR}/etc/profile.d/conda.sh" >> ~/.profile \
     && conda init bash
 
 # conda dependencies
@@ -43,11 +44,12 @@ RUN mamba env create -f grasp_refinement_env.yaml \
 
 # pip dependencies
 # removed tensorflow because it was downgrading numpy and breaking others
+# hydra-core 1.0.6 is needed, 1.1 broke torch-points
 RUN conda activate gref \
-    && /root/miniconda3/envs/gref/bin/pip install --no-cache-dir --compile pyrender \
-    # && /root/miniconda3/envs/gref/bin/pip install --no-cache-dir --compile tensorflow \
-    && /root/miniconda3/envs/gref/bin/pip install --no-cache-dir --compile python-fcl \
-    && /root/miniconda3/envs/gref/bin/pip install --no-cache-dir --compile hydra-core \
+    && ${CONDA_DIR}/envs/gref/bin/pip install --no-cache-dir --compile pyrender \
+    # && ${CONDA_DIR}/envs/gref/bin/pip install --no-cache-dir --compile tensorflow \
+    && ${CONDA_DIR}/envs/gref/bin/pip install --no-cache-dir --compile python-fcl \
+    && ${CONDA_DIR}/envs/gref/bin/pip install --no-cache-dir --compile hydra-core==1.0.6 \
     && rm -rf /root/.cache \
     && mamba clean -afy
 
@@ -55,13 +57,30 @@ RUN conda activate gref \
 ENV TORCH_CUDA_ARCH_LIST="7.5"
 ENV CPATH=/usr/local/cuda/include:$CPATH
 RUN conda activate gref \
-    && FORCE_CUDA=1 /root/miniconda3/envs/gref/bin/pip install --no-cache-dir --compile torch-points-kernels \
-    && /root/miniconda3/envs/gref/bin/pip install --no-cache-dir --compile \
+    && FORCE_CUDA=1 ${CONDA_DIR}/envs/gref/bin/pip install --no-cache-dir --compile torch-points-kernels \
+    && ${CONDA_DIR}/envs/gref/bin/pip install --no-cache-dir --compile \
     torch-scatter torch-sparse torch-cluster -f \
     https://pytorch-geometric.com/whl/torch-1.9.0+cu111.html \
-    && /root/miniconda3/envs/gref/bin/pip install --no-cache-dir --compile torch-geometric \
-    && /root/miniconda3/envs/gref/bin/pip install --no-cache-dir --compile pytorch-metric-learning \
-    && /root/miniconda3/envs/gref/bin/pip install --no-cache-dir --compile torchnet \
+    && ${CONDA_DIR}/envs/gref/bin/pip install --no-cache-dir --compile torch-geometric \
+    && ${CONDA_DIR}/envs/gref/bin/pip install --no-cache-dir --compile pytorch-metric-learning \
+    && ${CONDA_DIR}/envs/gref/bin/pip install --no-cache-dir --compile torchnet \
+    && rm -rf /root/.cache \
+    && mamba clean -afy
+
+RUN conda activate gref \
+    && ${CONDA_DIR}/envs/gref/bin/pip install --no-cache-dir --compile trimesh \
+    && ${CONDA_DIR}/envs/gref/bin/pip install --no-cache-dir --compile tensorboard \
+    && rm -rf /root/.cache \
+    && mamba clean -afy
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential libopenblas-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && conda activate gref \
+    && ${CONDA_DIR}/envs/gref/bin/pip install MinkowskiEngine \
+    --install-option="--blas=openblas" --install-option="--force_cuda" \
+    -v --no-deps \
     && rm -rf /root/.cache \
     && mamba clean -afy
 
