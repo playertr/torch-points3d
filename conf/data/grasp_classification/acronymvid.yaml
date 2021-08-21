@@ -9,6 +9,7 @@ dataroot: /home/tim/Research/GraspRefinement/data
 process_workers: 8
 apply_rotation: False
 grid_size: 0.05
+num_points : 3000000
 mode: "last"
 
 pre_filters:
@@ -17,7 +18,7 @@ pre_filters:
 train_pre_batch_collate_transform:
   - transform: ClampBatchSize
     params:
-      num_points: 1000000
+      num_points: ${data.num_points}
 
 train_transform:
   - transform: Random3AxisRotation
