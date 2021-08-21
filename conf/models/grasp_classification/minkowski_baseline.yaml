@@ -179,4 +179,4 @@ GraspMinkUNet14A:
   conv_type: "SPARSE"
   model_name: "MinkUNet14A"
   D: 4
-  backbone_out_dim: 8
+  backbone_out_dim: 128
