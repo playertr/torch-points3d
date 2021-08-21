@@ -1,0 +1,4 @@
+FROM principialabs/torch-points3d:latest-gpu
+
+# install 
+RUN pip3 install trimesh
