@@ -142,8 +142,13 @@ def add_s_loss(approach_dir, baseline_dir, coords, pos_control_points, sym_pos_c
             # (n_grasp, n_gt_grasps) 
             
             neg_squared_add = -torch.cat([squared_add, sym_squared_add], dim=1) # (n_grasp, 2*n_gt_grasp)
-            neg_squared_add_k = torch.topk(neg_squared_add, k=1, sorted=False, dim=1)[0] # (n_grasp)
 
+            try:
+                neg_squared_add_k = torch.topk(neg_squared_add, k=1, sorted=False, dim=1)[0] # (n_grasp)
+            except RuntimeError:
+                # if an image has no labeled grasps, this triggers.
+                loss += torch.Tensor(0.0)
+                break
 
             labels_frame = labels[idxs]
             logits_frame = logits[idxs]
