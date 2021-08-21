@@ -77,16 +77,26 @@ dataset.create_dataloaders(model,
 
 loader = dataset.test_dataloaders[0]
 
-data = next(iter(loader))
-
 import time
 tic = time.time()
 
 device = torch.device("cuda")
 model = model.to(device)
 
-model.set_input(data, device)
-model.forward() # self.input.F.shape is [64315, 1]
-model.backward()
+optimizer = torch.optim.SGD(model.parameters(), lr=0.00001, momentum=0.2)
+
+for i in range(2000):
+
+  data = next(iter(loader))
+  optimizer.zero_grad()
+
+  model.set_input(data, device)
+  model.forward() # self.input.F.shape is [64315, 1]
+  model.backward()
+
+  optimizer.step()
+
+  print(model.add_s_loss.item())
+  
 
 print(f"done in time {time.time() - tic}")

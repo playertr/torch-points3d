@@ -14,7 +14,7 @@ class Minkowski_Baseline_Model(BaseModel):
         super(Minkowski_Baseline_Model, self).__init__(option)
         self._weight_classes = dataset.weight_classes
         self.model = GraspNet(option, dataset)
-        self.loss_names = ["loss_seg"]
+        self.loss_names = ["loss_grasp"]
 
     def set_input(self, data, device):
         
@@ -38,6 +38,7 @@ class Minkowski_Baseline_Model(BaseModel):
 
         # Identify ground truth grasps
         self.pos_control_points = data.pos_control_points # a list
+        self.sym_pos_control_points = data.sym_pos_control_points
 
     def forward(self, *args, **kwargs):
 
@@ -52,6 +53,7 @@ class Minkowski_Baseline_Model(BaseModel):
             self.baseline_dir, 
             self.input.coordinates, 
             self.pos_control_points,
+            self.sym_pos_control_points,
             self.single_gripper_points,
             self.labels,
             self.class_logits,
@@ -62,13 +64,13 @@ class Minkowski_Baseline_Model(BaseModel):
             self.labels
         )
 
-        self.loss_seg = self.add_s_loss + self.classification_loss
+        self.loss_grasp = self.classification_loss + 10*self.add_s_loss
         
     def backward(self):
-        self.loss_seg.backward()
+        self.loss_grasp.backward()
 
 
-def add_s_loss(approach_dir, baseline_dir, coords, pos_control_points, single_gripper_points, labels, logits, device) -> torch.Tensor:
+def add_s_loss(approach_dir, baseline_dir, coords, pos_control_points, sym_pos_control_points, single_gripper_points, labels, logits, device) -> torch.Tensor:
     """Compute add-s loss from Contact-GraspNet.
 
     The add-s loss is the"minimum average distance from a predicted grasp's
@@ -127,28 +129,34 @@ def add_s_loss(approach_dir, baseline_dir, coords, pos_control_points, single_gr
     loss = 0
     for i, b in enumerate(batches):
         for j, t in enumerate(times):
+            
             idxs = torch.where(torch.logical_and(coords[:,1] == t, coords[:,0] == b))
+
             # get predicted control points for this frame: this timestep, at this batch
             pred_cp_frame = pred_control_pts[idxs] # (2973, 5, 3)
             gt_cp_frame = torch.Tensor(pos_control_points[i][j, :, :, :]).to(device) # (1317, 5, 3)
+            sym_gt_cp_frame = torch.Tensor(sym_pos_control_points[i][j, :, :, :]).to(device) # (1317, 5, 3)
 
-            squared_add = torch.sum((torch.unsqueeze(pred_cp_frame, 0) - torch.unsqueeze(gt_cp_frame, 1))**2, dim=(2, 3))
-            neg_squared_add = -squared_add
+            squared_add = torch.sum((torch.unsqueeze(pred_cp_frame, 1) - torch.unsqueeze(gt_cp_frame, 0))**2, dim=(2, 3))
+            sym_squared_add = torch.sum((torch.unsqueeze(pred_cp_frame, 1) - torch.unsqueeze(sym_gt_cp_frame, 0))**2, dim=(2, 3))
+            # (n_grasp, n_gt_grasps) 
+            
+            neg_squared_add = -torch.cat([squared_add, sym_squared_add], dim=1) # (n_grasp, 2*n_gt_grasp)
+            neg_squared_add_k = torch.topk(neg_squared_add, k=1, sorted=False, dim=1)[0] # (n_grasp)
 
-            try:
-                neg_squared_add_k = torch.topk(neg_squared_add, k=1, sorted=False, dim=0)[0]
-            except:
-                loss += 0
-                break
 
             labels_frame = labels[idxs]
             logits_frame = logits[idxs]
 
-            loss_frame = torch.sum(torch.sigmoid(logits_frame.squeeze()) * labels_frame.squeeze() * -neg_squared_add_k.squeeze())
-
+            loss_frame = torch.mean(
+                torch.sigmoid(logits_frame.squeeze()) *     # weight by confidence
+                labels_frame.squeeze() *                    # only backprop positives
+                torch.sqrt(-neg_squared_add_k.squeeze())    # weight by distance
+            )
+                
             loss += loss_frame
 
-    return loss
+    return loss / (len(batches) * len(times)) # take average
 
 class GraspNet(torch.nn.Module):
     def __init__(self, option, dataset):

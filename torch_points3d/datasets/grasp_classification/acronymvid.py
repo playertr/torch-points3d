@@ -141,6 +141,13 @@ class GraspDataset(Dataset):
 
         control_points = np.matmul(gripper_control_points_homog, cam_frame_grasp_tfs.transpose((0, 1, 3, 2)))[:,:,:,:3]
 
+        # Create flipped symmetric control points for symmetric ADD-S loss
+        sym_gripper_control_points = gripper.get_control_point_tensor(max(1, pos_grasp_tfs.shape[0]), symmetric=True, use_tf=False) # num_gt_grasps x 5 x 3
+
+        sym_gripper_control_points_homog =  np.concatenate([sym_gripper_control_points, np.ones((sym_gripper_control_points.shape[0], sym_gripper_control_points.shape[1], 1))], axis=2)  # b x 5 x 4
+
+        sym_control_points = np.matmul(sym_gripper_control_points_homog, cam_frame_grasp_tfs.transpose((0, 1, 3, 2)))[:,:,:,:3]
+
         coords4d = torch.Tensor(pcs)
         data = Data(
             time=coords4d[:,0],     # First col is time
@@ -148,6 +155,7 @@ class GraspDataset(Dataset):
             x=torch.ones((len(pcs), 1)), 
             y=torch.Tensor(labels).view(-1 ,1),
             pos_control_points = control_points,
+            sym_pos_control_points = sym_control_points,
             single_gripper_pts = gripper_control_points[0]
         )
 
