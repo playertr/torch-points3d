@@ -126,7 +126,7 @@ def add_s_loss(approach_dir, baseline_dir, coords, pos_control_points, sym_pos_c
 
     # generate mapping from coordinates to integers
 
-    loss = 0
+    loss = torch.Tensor([0.0]).to(device)
     for i, b in enumerate(batches):
         for j, t in enumerate(times):
             
@@ -147,7 +147,7 @@ def add_s_loss(approach_dir, baseline_dir, coords, pos_control_points, sym_pos_c
                 neg_squared_add_k = torch.topk(neg_squared_add, k=1, sorted=False, dim=1)[0] # (n_grasp)
             except RuntimeError:
                 # if an image has no labeled grasps, this triggers.
-                loss += torch.Tensor(0.0)
+                loss += 0.0
                 break
 
             labels_frame = labels[idxs]
