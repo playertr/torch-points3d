@@ -168,25 +168,19 @@ class GraspNet(torch.nn.Module):
             option.model_name, dataset.feature_dimension, option.backbone_out_dim, D=option.D, **option.get("extra_options", {})
         )
         self.classification_head = nn.Sequential(
-            nn.Linear(option.backbone_out_dim, 512),
-            nn.ReLU(),
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, 1)
-        )
-        self.approach_dir_head = nn.Sequential(
-            nn.Linear(option.backbone_out_dim, 512),
-            nn.ReLU(),
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, 3)
+            nn.Conv1d(in_channels=option.backbone_out_dim, out_channels=128, kernel_size=1),
+            nn.Dropout(p=0.3),
+            nn.Conv1d(in_channels=128, out_channels=1, kernel_size=1),
         )
         self.baseline_dir_head = nn.Sequential(
-            nn.Linear(option.backbone_out_dim, 512),
-            nn.ReLU(),
-            nn.Linear(512, 512),
-            nn.ReLU(),
-            nn.Linear(512, 3)
+            nn.Conv1d(in_channels=option.backbone_out_dim, out_channels=128, kernel_size=1),
+            nn.Dropout(p=0.3),
+            nn.Conv1d(in_channels=128, out_channels=3, kernel_size=1),
+        )
+        self.approach_dir_head = nn.Sequential(
+            nn.Conv1d(in_channels=option.backbone_out_dim, out_channels=128, kernel_size=1),
+            nn.Dropout(p=0.3),
+            nn.Conv1d(in_channels=128, out_channels=3, kernel_size=1),
         )
     
     def forward(self, sparse_x):
@@ -200,10 +194,14 @@ class GraspNet(torch.nn.Module):
         x = x.slice(sparse_x).F
         torch.cuda.empty_cache()
 
-        class_logits = self.classification_head(x)
+        class_logits = self.classification_head(x.unsqueeze(-1)).squeeze(dim=-1)
 
-        approach_dir = self.approach_dir_head(x)
+        # Gram-Schmidt normalization
+        baseline_dir = self.baseline_dir_head(x.unsqueeze(-1)).squeeze()
+        baseline_dir = F.normalize(baseline_dir)
 
-        baseline_dir = self.baseline_dir_head(x)
+        approach_dir = self.approach_dir_head(x.unsqueeze(-1)).squeeze()
+        dot_product =  torch.sum(baseline_dir*approach_dir, dim=-1, keepdim=True)
+        approach_dir = F.normalize(approach_dir - dot_product*baseline_dir)
 
         return class_logits, approach_dir, baseline_dir
