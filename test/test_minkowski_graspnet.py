@@ -71,7 +71,7 @@ model = Minkowski_Baseline_Model(option=params.models[params.model_name],
 dataset.create_dataloaders(model,
     batch_size=2,
     shuffle=False,
-    num_workers=1,
+    num_workers=0,
     precompute_multi_scale=False
 )
 
@@ -85,13 +85,16 @@ model = model.to(device)
 
 optimizer = torch.optim.SGD(model.parameters(), lr=0.00001, momentum=0.2)
 
-for i in range(2000):
+
+for i in range(10):
 
   data = next(iter(loader))
   optimizer.zero_grad()
 
   model.set_input(data, device)
+
   model.forward() # self.input.F.shape is [64315, 1]
+
   model.backward()
 
   optimizer.step()

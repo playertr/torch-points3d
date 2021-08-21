@@ -39,8 +39,10 @@ class Minkowski_Baseline_Model(BaseModel):
 
     def forward(self, *args, **kwargs):
 
-        self.class_logits, self.approach_dir, self.baseline_dir = self.model(self.input)
+        self.class_logits, self.approach_dir, self.baseline_dir, self.grasp_width = self.model(self.input)
 
+    def _compute_losses(self):
+        
         self.bce_loss = F.binary_cross_entropy_with_logits(self.class_logits,
             self.labels
         )
@@ -54,6 +56,7 @@ class Minkowski_Baseline_Model(BaseModel):
             self.single_gripper_points,
             self.labels,
             self.class_logits,
+            self.grasp_width,
             self.device)
 
         self.classification_loss = F.binary_cross_entropy_with_logits(
@@ -61,13 +64,14 @@ class Minkowski_Baseline_Model(BaseModel):
             self.labels
         )
 
-        self.loss_grasp = self.classification_loss + 10*self.add_s_loss
-        
+        self.loss_grasp = 10*self.classification_loss + self.add_s_loss 
+
     def backward(self):
+        self._compute_losses()
         self.loss_grasp.backward()
 
 
-def add_s_loss(approach_dir, baseline_dir, coords, pos_control_points, sym_pos_control_points, single_gripper_points, labels, logits, device) -> torch.Tensor:
+def add_s_loss(approach_dir, baseline_dir, coords, pos_control_points, sym_pos_control_points, single_gripper_points, labels, logits, grasp_width, device) -> torch.Tensor:
     """Compute add-s loss from Contact-GraspNet.
 
     The add-s loss is the"minimum average distance from a predicted grasp's
@@ -84,13 +88,12 @@ def add_s_loss(approach_dir, baseline_dir, coords, pos_control_points, sym_pos_c
     # self.pos_control_points.shape is (2, 10, 1317, 5, 3)
     
     # calculate the SE(3) transforms corresponding to each predicted approach/baseline pair.
-    gripper_width = 0.08 # from contact_graspnet/config.yaml
     gripper_depth = 0.1034
 
     # the last three columns of coords are position (NB! unstable Minkowski API)
     contact_pts = coords[:,2:]
     grasps_R = torch.stack([baseline_dir, torch.cross(approach_dir, baseline_dir), approach_dir], axis=2)
-    grasps_t = contact_pts + gripper_width/2 * baseline_dir - gripper_depth * approach_dir
+    grasps_t = contact_pts + grasp_width/2 * baseline_dir - gripper_depth * approach_dir
     ones = torch.ones((contact_pts.shape[0], 1, 1), device=device)
     zeros = torch.zeros((contact_pts.shape[0], 1, 3), device=device)
     homog_vec = torch.cat([zeros, ones], axis=2)
@@ -182,6 +185,12 @@ class GraspNet(torch.nn.Module):
             nn.Dropout(p=0.3),
             nn.Conv1d(in_channels=128, out_channels=3, kernel_size=1),
         )
+
+        self.grasp_offset_head = nn.Sequential(
+            nn.Conv1d(in_channels=option.backbone_out_dim, out_channels=128, kernel_size=1),
+            nn.Dropout(p=0.3),
+            nn.Conv1d(in_channels=128, out_channels=1, kernel_size=1),
+        )
     
     def forward(self, sparse_x):
         """Accepts a Minkowski sparse tensor."""
@@ -204,4 +213,6 @@ class GraspNet(torch.nn.Module):
         dot_product =  torch.sum(baseline_dir*approach_dir, dim=-1, keepdim=True)
         approach_dir = F.normalize(approach_dir - dot_product*baseline_dir)
 
-        return class_logits, approach_dir, baseline_dir
+        grasp_offset = self.grasp_offset_head(x.unsqueeze(-1)).squeeze(dim=-1)
+
+        return class_logits, approach_dir, baseline_dir, grasp_offset
