@@ -17,28 +17,25 @@ class Minkowski_Baseline_Model(BaseModel):
         self.loss_names = ["loss_grasp"]
 
     def set_input(self, data, device):
-        
         self.data = data # store data as instance variable in RAM for visualization
-        self.single_gripper_points = torch.Tensor(data.single_gripper_pts[0]).to(self.device)
+        self.single_gripper_points = data[0].single_gripper_pts.squeeze().to(device)
 
-        torch.cuda.empty_cache()
+        coords = torch.cat([data.batch.reshape(-1, 1), data.time.reshape(-1, 1), data.coords], dim=1).int().to(device)
 
-        coords = torch.cat([data.batch.reshape(-1, 1), data.time.reshape(-1, 1), data.coords], dim=1).int()
-
-        features = data.x.to(device=self.device)
-        torch.cuda.empty_cache()
+        features = data.x.to(device)
 
         self.input = ME.SparseTensor(
             features=features,
             coordinates=coords,
             quantization_mode=ME.SparseTensorQuantizationMode.UNWEIGHTED_AVERAGE,
             minkowski_algorithm=ME.MinkowskiAlgorithm.MEMORY_EFFICIENT,
-            device=self.device)
-        self.labels = data.y.to(self.device)
+            device=device)
+        self.labels = data.y.to(device)
 
         # Identify ground truth grasps
-        self.pos_control_points = data.pos_control_points # a list
-        self.sym_pos_control_points = data.sym_pos_control_points
+        self.pos_control_points = data.pos_control_points.to(device) # a list
+        self.sym_pos_control_points = data.sym_pos_control_points.to(device)
+        
 
     def forward(self, *args, **kwargs):
 
@@ -94,9 +91,9 @@ def add_s_loss(approach_dir, baseline_dir, coords, pos_control_points, sym_pos_c
     contact_pts = coords[:,2:]
     grasps_R = torch.stack([baseline_dir, torch.cross(approach_dir, baseline_dir), approach_dir], axis=2)
     grasps_t = contact_pts + gripper_width/2 * baseline_dir - gripper_depth * approach_dir
-    ones = torch.ones((contact_pts.shape[0], 1, 1))
-    zeros = torch.zeros((contact_pts.shape[0], 1, 3))
-    homog_vec = torch.cat([zeros, ones], axis=2).to(device)
+    ones = torch.ones((contact_pts.shape[0], 1, 1), device=device)
+    zeros = torch.zeros((contact_pts.shape[0], 1, 3), device=device)
+    homog_vec = torch.cat([zeros, ones], axis=2)
 
     pred_grasp_tfs = torch.cat([torch.cat([grasps_R, torch.unsqueeze(grasps_t, 2)], dim=2), homog_vec], dim=1)
 
@@ -134,8 +131,8 @@ def add_s_loss(approach_dir, baseline_dir, coords, pos_control_points, sym_pos_c
 
             # get predicted control points for this frame: this timestep, at this batch
             pred_cp_frame = pred_control_pts[idxs] # (2973, 5, 3)
-            gt_cp_frame = torch.Tensor(pos_control_points[i][j, :, :, :]).to(device) # (1317, 5, 3)
-            sym_gt_cp_frame = torch.Tensor(sym_pos_control_points[i][j, :, :, :]).to(device) # (1317, 5, 3)
+            gt_cp_frame = pos_control_points[i, j, :, :, :] # (1317, 5, 3)
+            sym_gt_cp_frame = sym_pos_control_points[i, j, :, :, :] # (1317, 5, 3)
 
             squared_add = torch.sum((torch.unsqueeze(pred_cp_frame, 1) - torch.unsqueeze(gt_cp_frame, 0))**2, dim=(2, 3))
             sym_squared_add = torch.sum((torch.unsqueeze(pred_cp_frame, 1) - torch.unsqueeze(sym_gt_cp_frame, 0))**2, dim=(2, 3))

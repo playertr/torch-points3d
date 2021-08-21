@@ -154,9 +154,9 @@ class GraspDataset(Dataset):
             pos = coords4d[:, 1:],  # Last 3 cols are x, y, z
             x=torch.ones((len(pcs), 1)), 
             y=torch.Tensor(labels).view(-1 ,1),
-            pos_control_points = control_points,
-            sym_pos_control_points = sym_control_points,
-            single_gripper_pts = gripper_control_points[0]
+            pos_control_points = torch.Tensor(control_points).unsqueeze(0),
+            sym_pos_control_points = torch.Tensor(sym_control_points).unsqueeze(0),
+            single_gripper_pts = torch.Tensor(gripper_control_points[0]).unsqueeze(0)
         )
 
         return data
