@@ -18,7 +18,7 @@ class Minkowski_Baseline_Model(BaseModel):
 
     def set_input(self, data, device):
         self.data = data # store data as instance variable in RAM for visualization
-        self.single_gripper_points = data[0].single_gripper_pts.squeeze().to(device)
+        self.single_gripper_points = data[0].single_gripper_pts.to(device)
 
         coords = torch.cat([data.batch.reshape(-1, 1), data.time.reshape(-1, 1), data.coords], dim=1).int().to(device)
 
@@ -33,8 +33,8 @@ class Minkowski_Baseline_Model(BaseModel):
         self.labels = data.y.to(device)
 
         # Identify ground truth grasps
-        self.pos_control_points = data.pos_control_points.to(device) # a list
-        self.sym_pos_control_points = data.sym_pos_control_points.to(device)
+        self.pos_control_points = [torch.Tensor(d).to(device) for d in data.pos_control_points]# a list
+        self.sym_pos_control_points = [torch.Tensor(d).to(device) for d in data.sym_pos_control_points]
         
 
     def forward(self, *args, **kwargs):
@@ -131,8 +131,9 @@ def add_s_loss(approach_dir, baseline_dir, coords, pos_control_points, sym_pos_c
 
             # get predicted control points for this frame: this timestep, at this batch
             pred_cp_frame = pred_control_pts[idxs] # (2973, 5, 3)
-            gt_cp_frame = pos_control_points[i, j, :, :, :] # (1317, 5, 3)
-            sym_gt_cp_frame = sym_pos_control_points[i, j, :, :, :] # (1317, 5, 3)
+            
+            gt_cp_frame = pos_control_points[i][j, :, :, :] # (1317, 5, 3)
+            sym_gt_cp_frame = sym_pos_control_points[i][j, :, :, :] # (1317, 5, 3)
 
             squared_add = torch.sum((torch.unsqueeze(pred_cp_frame, 1) - torch.unsqueeze(gt_cp_frame, 0))**2, dim=(2, 3))
             sym_squared_add = torch.sum((torch.unsqueeze(pred_cp_frame, 1) - torch.unsqueeze(sym_gt_cp_frame, 0))**2, dim=(2, 3))
