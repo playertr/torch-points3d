@@ -8,7 +8,7 @@ from torch_points3d.models.grasp_classification.minkowski_graspnet import Minkow
 # from torch_points3d.models.grasp_classification.minkowski import Minkowski_Baseline_Model
 
 yaml_config = """
-model_name: STRes16UNet14B
+model_name: GraspMinkUNet14A
 data:
     task: grasp_classification
     class: acronymvid.AcronymVidDataset
@@ -47,14 +47,12 @@ data:
         quantize_coords: True
         mode: ${data.mode}
 models:
-    STRes16UNet14B:
-        class: minkowski.Minkowski_Baseline_Model
-        conv_type: "SPARSE"
-        model_name: "STRes16UNet14B"
-        D: 4
-        backbone_out_dim: 8
-        extra_options:
-            conv1_kernel_size: 5
+  GraspMinkUNet14A:
+    class: minkowski_graspnet.Minkowski_Baseline_Model
+    conv_type: "SPARSE"
+    model_name: "MinkUNet14A"
+    D: 4
+    backbone_out_dim: 128
 """
 
 from omegaconf import OmegaConf
@@ -81,25 +79,48 @@ import time
 tic = time.time()
 
 device = torch.device("cuda")
+# device = torch.device("cpu")
 model = model.to(device)
 
 optimizer = torch.optim.SGD(model.parameters(), lr=0.00001, momentum=0.2)
 
+input_times = []
+fwd_times = []
+bwd_times = []
+tot_times = []
 
 for i in range(10):
 
   data = next(iter(loader))
-  optimizer.zero_grad()
+  # optimizer.zero_grad()
 
+  t0 = time.time()
   model.set_input(data, device)
 
+  t1 = time.time()
+  input_times.append(t1 - t0)
+
   model.forward() # self.input.F.shape is [64315, 1]
+  
+  t2 = time.time()
+  fwd_times.append(t2 - t1)
 
   model.backward()
-
   optimizer.step()
 
+  t3 = time.time()
+  bwd_times.append(t3 - t2)
+    
+  tot_times.append(t3 - t0)
+
+
   print(model.add_s_loss.item())
+
+import numpy as np
+print(f"Input Time: \t{np.mean(input_times)} \t+/- {np.std(input_times)}")
+print(f"fwd Time: \t{np.mean(fwd_times)} \t+/- {np.std(fwd_times)}")
+print(f"bwd Time: \t{np.mean(bwd_times)} \t+/- {np.std(bwd_times)}")
+print(f"tot Time: \t{np.mean(tot_times)} \t+/- {np.std(tot_times)}")
   
 
 print(f"done in time {time.time() - tic}")
