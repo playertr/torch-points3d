@@ -69,7 +69,7 @@ model = Minkowski_Baseline_Model(option=params.models[params.model_name],
 dataset.create_dataloaders(model,
     batch_size=2,
     shuffle=False,
-    num_workers=0,
+    num_workers=4,
     precompute_multi_scale=False
 )
 
@@ -81,8 +81,12 @@ tic = time.time()
 device = torch.device("cuda")
 # device = torch.device("cpu")
 model = model.to(device)
+t0a = time.time()
+print(f"Time to push model to device: \t{t0a - tic}")
 
 optimizer = torch.optim.SGD(model.parameters(), lr=0.00001, momentum=0.2)
+t0b = time.time()
+print(f"Time to initialize optimizer: \t{t0b - t0a}")
 
 input_times = []
 fwd_times = []
