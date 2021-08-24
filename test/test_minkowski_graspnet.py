@@ -53,6 +53,8 @@ models:
     model_name: "MinkUNet14A"
     D: 4
     backbone_out_dim: 128
+    add_s_loss_coeff: 10
+    bce_loss_coeff: 1
 """
 
 from omegaconf import OmegaConf
