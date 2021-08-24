@@ -68,7 +68,7 @@ class Minkowski_Baseline_Model(BaseModel):
             self.labels
         )
 
-        self.loss_grasp = 10*self.classification_loss + self.add_s_loss 
+        self.loss_grasp = self.opt.bce_loss_coeff*self.classification_loss + self.opt.add_s_loss_coeff*self.add_s_loss 
 
     def backward(self):
         self._compute_losses()
