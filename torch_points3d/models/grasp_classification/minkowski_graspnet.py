@@ -14,7 +14,7 @@ class Minkowski_Baseline_Model(BaseModel):
         super(Minkowski_Baseline_Model, self).__init__(option)
         self._weight_classes = dataset.weight_classes
         self.model = GraspNet(option, dataset)
-        self.loss_names = ["loss_grasp"]
+        self.loss_names = ["loss_grasp", "add_s_loss", "classification_loss"]
 
     def set_input(self, data, device):
         self.data = data # store data as instance variable in RAM for visualization
