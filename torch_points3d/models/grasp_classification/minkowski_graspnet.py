@@ -35,6 +35,9 @@ class Minkowski_Baseline_Model(BaseModel):
         # Identify ground truth grasps
         self.pos_control_points = [torch.Tensor(d).to(device) for d in data.pos_control_points]# a list
         self.sym_pos_control_points = [torch.Tensor(d).to(device) for d in data.sym_pos_control_points]
+
+        # Store 3d positions corresponding to coordinates
+        self.positions = torch.Tensor(data.pos).to(device)
         
 
     def forward(self, *args, **kwargs):
@@ -48,16 +51,17 @@ class Minkowski_Baseline_Model(BaseModel):
         )
 
         self.add_s_loss = add_s_loss(
-            self.approach_dir, 
-            self.baseline_dir, 
-            self.input.coordinates, 
-            self.pos_control_points,
-            self.sym_pos_control_points,
-            self.single_gripper_points,
-            self.labels,
-            self.class_logits,
-            self.grasp_width,
-            self.device)
+            approach_dir = self.approach_dir, 
+            baseline_dir = self.baseline_dir, 
+            coords = self.input.coordinates, 
+            positions = self.data.pos,
+            pos_control_points = self.pos_control_points,
+            sym_pos_control_points = self.sym_pos_control_points,
+            single_gripper_points = self.single_gripper_points,
+            labels = self.labels,
+            logits = self.class_logits,
+            grasp_width = self.grasp_width,
+            device = self.device)
 
         self.classification_loss = F.binary_cross_entropy_with_logits(
             self.class_logits,
@@ -70,8 +74,22 @@ class Minkowski_Baseline_Model(BaseModel):
         self._compute_losses()
         self.loss_grasp.backward()
 
+def build_6dof_grasps(coords, baseline_dir, approach_dir, grasp_width, device, gripper_depth=0.1034):
+    """calculate the SE(3) transforms corresponding to each predicted coord/approach/baseline/grasp_width grasp.
+    """
 
-def add_s_loss(approach_dir, baseline_dir, coords, pos_control_points, sym_pos_control_points, single_gripper_points, labels, logits, grasp_width, device) -> torch.Tensor:
+    # the last three columns of coords are position (NB! unstable Minkowski API)
+    contact_pts = coords[:,2:]
+    grasps_R = torch.stack([baseline_dir, torch.cross(approach_dir, baseline_dir), approach_dir], axis=2)
+    grasps_t = contact_pts + grasp_width/2 * baseline_dir - gripper_depth * approach_dir
+    ones = torch.ones((contact_pts.shape[0], 1, 1), device=device)
+    zeros = torch.zeros((contact_pts.shape[0], 1, 3), device=device)
+    homog_vec = torch.cat([zeros, ones], axis=2)
+
+    pred_grasp_tfs = torch.cat([torch.cat([grasps_R, torch.unsqueeze(grasps_t, 2)], dim=2), homog_vec], dim=1)
+    return pred_grasp_tfs
+
+def add_s_loss(approach_dir, baseline_dir, coords, positions, pos_control_points, sym_pos_control_points, single_gripper_points, labels, logits, grasp_width, device) -> torch.Tensor:
     """Compute add-s loss from Contact-GraspNet.
 
     The add-s loss is the"minimum average distance from a predicted grasp's
@@ -86,20 +104,10 @@ def add_s_loss(approach_dir, baseline_dir, coords, pos_control_points, sym_pos_c
     Returns: torch.Tensor: (B,) tensor of scalar losses
     """
     # self.pos_control_points.shape is (2, 10, 1317, 5, 3)
+    pred_grasp_tfs = build_6dof_grasps(positions, baseline_dir, approach_dir, grasp_width, device)
     
     # calculate the SE(3) transforms corresponding to each predicted approach/baseline pair.
-    gripper_depth = 0.1034
-
-    # the last three columns of coords are position (NB! unstable Minkowski API)
-    contact_pts = coords[:,2:]
-    grasps_R = torch.stack([baseline_dir, torch.cross(approach_dir, baseline_dir), approach_dir], axis=2)
-    grasps_t = contact_pts + grasp_width/2 * baseline_dir - gripper_depth * approach_dir
-    ones = torch.ones((contact_pts.shape[0], 1, 1), device=device)
-    zeros = torch.zeros((contact_pts.shape[0], 1, 3), device=device)
-    homog_vec = torch.cat([zeros, ones], axis=2)
-
-    pred_grasp_tfs = torch.cat([torch.cat([grasps_R, torch.unsqueeze(grasps_t, 2)], dim=2), homog_vec], dim=1)
-
+    
     # determine the control points of the predicted grasps for each point
     single_gripper_points_homog = torch.cat([
         single_gripper_points, 
