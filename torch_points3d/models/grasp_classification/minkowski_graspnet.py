@@ -54,7 +54,7 @@ class Minkowski_Baseline_Model(BaseModel):
             approach_dir = self.approach_dir, 
             baseline_dir = self.baseline_dir, 
             coords = self.input.coordinates, 
-            positions = self.data.pos,
+            positions = self.positions,
             pos_control_points = self.pos_control_points,
             sym_pos_control_points = self.sym_pos_control_points,
             single_gripper_points = self.single_gripper_points,
