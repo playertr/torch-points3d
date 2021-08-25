@@ -7,13 +7,9 @@ class: acronymvid.AcronymVidDataset
 name: acronymvid
 dataroot: /home/tim/Research/GraspRefinement/data
 process_workers: 8
-apply_rotation: False
 grid_size: 0.05
 num_points : 3000000
 mode: "last"
-
-pre_filters:
-  - filter: SaturatedLabelsFilter
 
 train_pre_batch_collate_transform:
   - transform: ClampBatchSize
@@ -21,15 +17,6 @@ train_pre_batch_collate_transform:
       num_points: ${data.num_points}
 
 train_transform:
-  - transform: Random3AxisRotation
-    params:
-      apply_rotation: ${data.apply_rotation}
-      rot_x: 8
-      rot_y: 8
-      rot_z: 180
-  - transform: RandomSymmetry
-    params:
-      axis: [True, True, False]
   - transform: GridSampling3D
     params:
       size: ${data.grid_size}
