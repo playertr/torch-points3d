@@ -45,10 +45,6 @@ class Minkowski_Baseline_Model(BaseModel):
         self.class_logits, self.approach_dir, self.baseline_dir, self.grasp_width = self.model(self.input)
 
     def _compute_losses(self):
-        
-        self.bce_loss = F.binary_cross_entropy_with_logits(self.class_logits,
-            self.labels
-        )
 
         self.add_s_loss = add_s_loss(
             approach_dir = self.approach_dir, 
@@ -74,12 +70,9 @@ class Minkowski_Baseline_Model(BaseModel):
         self._compute_losses()
         self.loss_grasp.backward()
 
-def build_6dof_grasps(coords, baseline_dir, approach_dir, grasp_width, device, gripper_depth=0.1034):
+def build_6dof_grasps(contact_pts, baseline_dir, approach_dir, grasp_width, device, gripper_depth=0.1034):
     """calculate the SE(3) transforms corresponding to each predicted coord/approach/baseline/grasp_width grasp.
     """
-
-    # the last three columns of coords are position (NB! unstable Minkowski API)
-    contact_pts = coords[:,2:]
     grasps_R = torch.stack([baseline_dir, torch.cross(approach_dir, baseline_dir), approach_dir], axis=2)
     grasps_t = contact_pts + grasp_width/2 * baseline_dir - gripper_depth * approach_dir
     ones = torch.ones((contact_pts.shape[0], 1, 1), device=device)
