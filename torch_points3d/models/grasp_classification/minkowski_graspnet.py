@@ -20,9 +20,27 @@ class Minkowski_Baseline_Model(BaseModel):
         self.data = data # store data as instance variable in RAM for visualization
         self.single_gripper_points = data[0].single_gripper_pts.to(device)
 
-        coords = torch.cat([data.batch.reshape(-1, 1), data.time.reshape(-1, 1), data.coords], dim=1).int().to(device)
+        # randomly downsample 4D points
+        perm = torch.randperm(data.pos.shape[0])
+        self.idx = perm[:self.opt.num_points]
+        self.idx, _ = self.idx.sort()
 
-        features = data.x.to(device)
+        batch = data.batch[self.idx]
+        time = data.time[self.idx]
+        pos = data.pos[self.idx]
+        x = data.x[self.idx]
+        y = data.y[self.idx]
+
+        # quantize position across a voxel grid, truncating decimals
+        quantized_pos = (pos / self.opt.grid_size).int()
+
+        coords = torch.cat([
+            batch.reshape(-1, 1), 
+            time.reshape(-1, 1), 
+            quantized_pos,
+            ], dim=1).int().to(device)
+
+        features = x.to(device)
 
         self.input = ME.SparseTensor(
             features=features,
@@ -30,14 +48,15 @@ class Minkowski_Baseline_Model(BaseModel):
             quantization_mode=ME.SparseTensorQuantizationMode.UNWEIGHTED_AVERAGE,
             minkowski_algorithm=ME.MinkowskiAlgorithm.MEMORY_EFFICIENT,
             device=device)
-        self.labels = data.y.to(device)
+
+        self.labels =y.to(device)
 
         # Identify ground truth grasps
         self.pos_control_points = [torch.Tensor(d).to(device) for d in data.pos_control_points]# a list
         self.sym_pos_control_points = [torch.Tensor(d).to(device) for d in data.sym_pos_control_points]
 
         # Store 3d positions corresponding to coordinates
-        self.positions = torch.Tensor(data.pos).to(device)
+        self.positions = torch.Tensor(pos).to(device)
         
 
     def forward(self, *args, **kwargs):
