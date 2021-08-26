@@ -34,6 +34,7 @@ class Minkowski_Baseline_Model(BaseModel):
         # quantize position across a voxel grid, truncating decimals
         quantized_pos = (pos / self.opt.grid_size).int()
 
+        # TODO: the coordinates in this array are not unique, due to the truncated quantization to a voxel grid. During sparsitization, the coordinates get irretrievably squished, i.e., coords.shape == [800000, 5], and self.input.shape == [750000, 5]. We care about the original (unquantized) locations of points for building 6DOF grasps, so I need to fix this. 
         coords = torch.cat([
             batch.reshape(-1, 1), 
             time.reshape(-1, 1), 
