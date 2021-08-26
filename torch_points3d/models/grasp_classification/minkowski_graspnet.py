@@ -50,7 +50,7 @@ class Minkowski_Baseline_Model(BaseModel):
             minkowski_algorithm=ME.MinkowskiAlgorithm.MEMORY_EFFICIENT,
             device=device)
 
-        self.labels =y.to(device)
+        self.labels = y.to(device)
 
         # Identify ground truth grasps
         self.pos_control_points = [torch.Tensor(d).to(device) for d in data.pos_control_points]# a list
@@ -58,10 +58,8 @@ class Minkowski_Baseline_Model(BaseModel):
 
         # Store 3d positions corresponding to coordinates
         self.positions = torch.Tensor(pos).to(device)
-        
 
     def forward(self, *args, **kwargs):
-
         self.class_logits, self.approach_dir, self.baseline_dir, self.grasp_width = self.model(self.input)
 
     def _compute_losses(self):
@@ -215,8 +213,7 @@ class GraspNet(torch.nn.Module):
     
     def forward(self, sparse_x):
         """Accepts a Minkowski sparse tensor."""
-
-        # B 3 10 x ~300 x ~300
+        # B x 10 x ~300 x ~300
         torch.cuda.empty_cache()
         x = self.backbone(sparse_x)
         torch.cuda.empty_cache()
@@ -234,6 +231,6 @@ class GraspNet(torch.nn.Module):
         dot_product =  torch.sum(baseline_dir*approach_dir, dim=-1, keepdim=True)
         approach_dir = F.normalize(approach_dir - dot_product*baseline_dir)
 
-        grasp_offset = self.grasp_offset_head(x.unsqueeze(-1)).squeeze(dim=-1)
+        grasp_offset = F.relu(self.grasp_offset_head(x.unsqueeze(-1)).squeeze(dim=-1))
 
         return class_logits, approach_dir, baseline_dir, grasp_offset
