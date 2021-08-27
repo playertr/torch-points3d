@@ -65,12 +65,12 @@ print(f"Time to initialize optimizer: \t{t0b - t0a}")
 ########### Profile
 def profile_code(model, loader, optimizer):
   from torch.profiler import profile, record_function, ProfilerActivity
-  on_trace_ready=torch.profiler.tensorboard_trace_handler("/home/tim/Research/torch-points3d/tensorboard")
+  # on_trace_ready=torch.profiler.tensorboard_trace_handler("/home/tim/Research/torch-points3d/tensorboard")
 
   with profile(
     activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],  profile_memory=True, 
     record_shapes=True,
-    on_trace_ready=on_trace_ready
+    # on_trace_ready=on_trace_ready
   )as prof:
     data = next(iter(loader))
     model.set_input(data, device)
