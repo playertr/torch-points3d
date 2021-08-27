@@ -15,37 +15,7 @@ data:
     name: acronymvid
     dataroot: /home/tim/Research/GraspRefinement/data
     process_workers: 8
-    apply_rotation: False
-    grid_size: 0.05
-    mode: "last"
 
-    train_pre_batch_collate_transform:
-    - transform: ClampBatchSize
-      params:
-        num_points: 1000000
-
-    train_transform:
-    - transform: Random3AxisRotation
-      params:
-        apply_rotation: ${data.apply_rotation}
-        rot_x: 8
-        rot_y: 8
-        rot_z: 180
-    - transform: RandomSymmetry
-      params:
-        axis: [True, True, False]
-    - transform: GridSampling3D
-      params:
-        size: ${data.grid_size}
-        quantize_coords: True
-        mode: ${data.mode}
-
-    val_transform:
-    - transform: GridSampling3D
-      params:
-        size: ${data.grid_size}
-        quantize_coords: True
-        mode: ${data.mode}
 models:
   GraspMinkUNet14A:
     class: minkowski_graspnet.Minkowski_Baseline_Model
@@ -55,6 +25,8 @@ models:
     backbone_out_dim: 128
     add_s_loss_coeff: 10
     bce_loss_coeff: 1
+    num_points: 50000
+    grid_size: 0.005
 """
 
 from omegaconf import OmegaConf
@@ -90,43 +62,74 @@ optimizer = torch.optim.SGD(model.parameters(), lr=0.00001, momentum=0.2)
 t0b = time.time()
 print(f"Time to initialize optimizer: \t{t0b - t0a}")
 
-input_times = []
-fwd_times = []
-bwd_times = []
-tot_times = []
+########### Profile
+def profile_code(model, loader, optimizer):
+  from torch.profiler import profile, record_function, ProfilerActivity
+  on_trace_ready=torch.profiler.tensorboard_trace_handler("/home/tim/Research/torch-points3d/tensorboard")
 
-for i in range(10):
+  with profile(
+    activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],  profile_memory=True, 
+    record_shapes=True,
+    on_trace_ready=on_trace_ready
+  )as prof:
+    data = next(iter(loader))
+    model.set_input(data, device)
+    model.forward()
+    model.backward()
+    optimizer.step()
 
-  data = next(iter(loader))
-  # optimizer.zero_grad()
+  print(prof.key_averages().table(sort_by="cuda_memory_usage", row_limit=10))
+  prof.export_chrome_trace("trace.json")
 
-  t0 = time.time()
-  model.set_input(data, device)
+############
+def time_code(model, loader, optimizer):
+  input_times = []
+  fwd_times = []
+  bwd_times = []
+  tot_times = []
 
-  t1 = time.time()
-  input_times.append(t1 - t0)
+  for i in range(10):
 
-  model.forward() # self.input.F.shape is [64315, 1]
-  
-  t2 = time.time()
-  fwd_times.append(t2 - t1)
+    data = next(iter(loader))
+    # optimizer.zero_grad()
 
-  model.backward()
-  optimizer.step()
+    t0 = time.time()
+    model.set_input(data, device)
 
-  t3 = time.time()
-  bwd_times.append(t3 - t2)
+    t1 = time.time()
+    input_times.append(t1 - t0)
+
+    model.forward() # self.input.F.shape is [64315, 1]
     
-  tot_times.append(t3 - t0)
+    t2 = time.time()
+    fwd_times.append(t2 - t1)
+
+    model.backward()
+    optimizer.step()
+
+    t3 = time.time()
+    bwd_times.append(t3 - t2)
+      
+    tot_times.append(t3 - t0)
 
 
-  print(model.add_s_loss.item())
+    print(model.add_s_loss.item())
 
-import numpy as np
-print(f"Input Time: \t{np.mean(input_times)} \t+/- {np.std(input_times)}")
-print(f"fwd Time: \t{np.mean(fwd_times)} \t+/- {np.std(fwd_times)}")
-print(f"bwd Time: \t{np.mean(bwd_times)} \t+/- {np.std(bwd_times)}")
-print(f"tot Time: \t{np.mean(tot_times)} \t+/- {np.std(tot_times)}")
-  
+  import numpy as np
+  print(f"Input Time: \t{np.mean(input_times)} \t+/- {np.std(input_times)}")
+  print(f"fwd Time: \t{np.mean(fwd_times)} \t+/- {np.std(fwd_times)}")
+  print(f"bwd Time: \t{np.mean(bwd_times)} \t+/- {np.std(bwd_times)}")
+  print(f"tot Time: \t{np.mean(tot_times)} \t+/- {np.std(tot_times)}")
+    
 
-print(f"done in time {time.time() - tic}")
+  print(f"done in time {time.time() - tic}")
+
+def run_code(model, loader, optimizer):
+  for i in range(10):
+    data = next(iter(loader))
+    model.set_input(data, device)
+    model.forward()
+    model.backward()
+    optimizer.step()
+
+profile_code(model, loader, optimizer)
