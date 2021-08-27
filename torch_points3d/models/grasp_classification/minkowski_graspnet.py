@@ -145,7 +145,7 @@ def add_s_loss(approach_dir, baseline_dir, coords, positions, pos_control_points
 
     # generate mapping from coordinates to integers
 
-    loss = torch.Tensor([0.0]).to(device)
+    loss = torch.zeros(1, device=device)
     for i, b in enumerate(batches):
         for j, t in enumerate(times):
             
@@ -153,22 +153,15 @@ def add_s_loss(approach_dir, baseline_dir, coords, positions, pos_control_points
 
             # get predicted control points for this frame: this timestep, at this batch
             pred_cp_frame = pred_control_pts[idxs] # (2973, 5, 3)
-            
+
             gt_cp_frame = pos_control_points[i][j, :, :, :] # (1317, 5, 3)
             sym_gt_cp_frame = sym_pos_control_points[i][j, :, :, :] # (1317, 5, 3)
 
-            squared_add = torch.sum((torch.unsqueeze(pred_cp_frame, 1) - torch.unsqueeze(gt_cp_frame, 0))**2, dim=(2, 3))
-            sym_squared_add = torch.sum((torch.unsqueeze(pred_cp_frame, 1) - torch.unsqueeze(sym_gt_cp_frame, 0))**2, dim=(2, 3))
-            # (n_grasp, n_gt_grasps) 
-            
-            neg_squared_add = -torch.cat([squared_add, sym_squared_add], dim=1) # (n_grasp, 2*n_gt_grasp)
-
-            try:
-                neg_squared_add_k = torch.topk(neg_squared_add, k=1, sorted=False, dim=1)[0] # (n_grasp)
-            except RuntimeError:
-                # if an image has no labeled grasps, this triggers.
+            if gt_cp_frame.shape[0] == 0:
                 loss += 0.0
                 break
+
+            neg_squared_add_k = neg_squared_add_k_fn(pred_cp_frame, gt_cp_frame, sym_gt_cp_frame)
 
             labels_frame = labels[idxs]
             logits_frame = logits[idxs]
@@ -182,6 +175,33 @@ def add_s_loss(approach_dir, baseline_dir, coords, positions, pos_control_points
             loss += loss_frame
 
     return loss / (len(batches) * len(times)) # take average
+
+def orig_neg_squared_add_k_fn(pred_cp_frame, gt_cp_frame, sym_gt_cp_frame):
+    squared_add = torch.sum((torch.unsqueeze(pred_cp_frame, 1) - torch.unsqueeze(gt_cp_frame, 0))**2, dim=(2, 3))
+    sym_squared_add = torch.sum((torch.unsqueeze(pred_cp_frame, 1) - torch.unsqueeze(sym_gt_cp_frame, 0))**2, dim=(2, 3))
+    ## (n_grasp, n_gt_grasps) 
+
+    neg_squared_add = -torch.cat([squared_add, sym_squared_add], dim=1) # (n_grasp, 2*n_gt_grasp)
+
+    neg_squared_add_k = torch.topk(neg_squared_add, k=1, sorted=False, dim=1)[0] # (n_grasp)
+
+    return neg_squared_add_k
+
+@torch.jit.script
+def neg_squared_add_k_fn(pred_cp_frame, gt_cp_frame, sym_gt_cp_frame):
+    gt_cp_means = gt_cp_frame.mean(dim=1)
+    sym_gt_cp_means = sym_gt_cp_frame.mean(dim=1)
+    pred_cp_means = pred_cp_frame.mean(dim=1)
+
+    squared_add = torch.sum((torch.unsqueeze(pred_cp_means, 1) - torch.unsqueeze(gt_cp_means, 0))**2, dim=2)
+    sym_squared_add = torch.sum((torch.unsqueeze(pred_cp_means, 1) - torch.unsqueeze(sym_gt_cp_means, 0))**2, dim=2)
+
+    neg_squared_add = -torch.cat([squared_add, sym_squared_add], dim=1) 
+
+    best_idx = torch.topk(neg_squared_add, k=1, sorted=False, dim=1)[1].squeeze()
+    all_cp_frame = torch.cat([gt_cp_frame, sym_gt_cp_frame], dim=0)
+    neg_squared_add_k =  -torch.sum((pred_cp_frame - all_cp_frame[best_idx])**2, dim=(1,2))
+    return neg_squared_add_k
 
 class GraspNet(torch.nn.Module):
     def __init__(self, option, dataset):
