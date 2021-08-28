@@ -46,8 +46,8 @@ class Minkowski_Baseline_Model(BaseModel):
         self.input = ME.SparseTensor(
             features=features,
             coordinates=coords,
-            quantization_mode=ME.SparseTensorQuantizationMode.UNWEIGHTED_AVERAGE,
-            minkowski_algorithm=ME.MinkowskiAlgorithm.MEMORY_EFFICIENT,
+            quantization_mode=ME.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE,
+            minkowski_algorithm=ME.MinkowskiAlgorithm.SPEED_OPTIMIZED,
             device=device)
 
         self.labels = y.to(device)
