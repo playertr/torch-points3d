@@ -184,3 +184,4 @@ GraspMinkUNet14A:
   bce_loss_coeff: 1
   points_per_frame: 1000
   grid_size: 0.005
+  parallel_add_s: True
