@@ -182,5 +182,5 @@ GraspMinkUNet14A:
   backbone_out_dim: 128
   add_s_loss_coeff: 10
   bce_loss_coeff: 1
-  num_points: 10000
+  points_per_frame: 1000
   grid_size: 0.005
