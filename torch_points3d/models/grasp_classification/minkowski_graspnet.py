@@ -109,7 +109,8 @@ class Minkowski_Baseline_Model(BaseModel):
 
     def _compute_losses(self):
 
-        self.add_s_loss = add_s_loss(
+        add_s = add_s_loss if self.opt.parallel_add_s else sequential_add_s_loss
+        self.add_s_loss =add_s(
             approach_dir = self.approach_dir, 
             baseline_dir = self.baseline_dir, 
             coords = self.input.coordinates[self.input.inverse_mapping], 
