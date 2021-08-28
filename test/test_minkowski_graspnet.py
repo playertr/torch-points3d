@@ -25,8 +25,8 @@ models:
     backbone_out_dim: 128
     add_s_loss_coeff: 10
     bce_loss_coeff: 1
-    num_points: 50000
     grid_size: 0.005
+    points_per_frame: 500
 """
 
 from omegaconf import OmegaConf
@@ -42,7 +42,7 @@ model = Minkowski_Baseline_Model(option=params.models[params.model_name],
 
 dataset.create_dataloaders(model,
     batch_size=2,
-    shuffle=False,
+    shuffle=True,
     num_workers=4,
     precompute_multi_scale=False
 )
@@ -132,4 +132,8 @@ def run_code(model, loader, optimizer):
     model.backward()
     optimizer.step()
 
-profile_code(model, loader, optimizer)
+i = 0
+while(True):
+  print(i)
+  run_code(model, loader, optimizer)
+  i += 1
