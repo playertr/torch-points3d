@@ -169,7 +169,7 @@ def sequential_add_s_loss(approach_dir, baseline_dir, coords, positions, pos_con
             loss += torch.mean(
                 torch.sigmoid(logits[b][t]) *   # weight by confidence
                 labels[b][t] *                  # only backprop positives
-                dists.ravel()                   # weight by distance
+                dists.view(-1)                  # weight by distance
             )
     return loss
 
@@ -200,7 +200,7 @@ def add_s_loss(approach_dir, baseline_dir, coords, positions, pos_control_points
     loss = torch.mean(
         torch.sigmoid(logits) * # weight by confidence
         labels *                # only backprop positives
-        dists.ravel()           # weight by distance
+        dists.view(-1)           # weight by distance
     )
     return loss
 
