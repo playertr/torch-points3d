@@ -172,7 +172,7 @@ def sequential_add_s_loss(approach_dir, baseline_dir, coords, positions, pos_con
                 labels[b][t] *                  # only backprop positives
                 dists.view(-1)                  # weight by distance
             )
-    return loss
+    return loss / (n_batch * n_time)
 
 def add_s_loss(approach_dir, baseline_dir, coords, positions, pos_control_points, sym_pos_control_points, single_gripper_points, labels, logits, grasp_width, device) -> torch.Tensor:
     
