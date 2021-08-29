@@ -33,12 +33,10 @@ class Minkowski_Baseline_Model(BaseModel):
             frame_num = 0
             for b in data.batch.unique():
                 for t in data.time.unique():
-                    perm = random.sample(
-                        range(int(pts_per_frame)), 
-                        int(self.opt.points_per_frame)
-                    )
-                    perm = torch.Tensor(perm) + frame_num*pts_per_frame
-                    kept_idxs.append(perm[:self.opt.points_per_frame])
+                    probs = torch.ones((int(pts_per_frame)), device=device) / pts_per_frame # equal chance each point selected
+                    idxs = probs.multinomial(num_samples=int(self.opt.points_per_frame), replacement=False)
+                    idxs += int(frame_num*pts_per_frame)
+                    kept_idxs.append(idxs)
                     frame_num += 1
 
         with Timer(text="Data indexing: \t{:0.4f}"):
