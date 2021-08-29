@@ -12,6 +12,17 @@ log = logging.getLogger(__name__)
 
 from timer import Timer
 
+@torch.jit.script
+def indices(pop_size:int, num_samples:int, num_trials:int, device:torch.device) -> list:
+    kept_idxs = []
+    frame_num = 0
+    for t in range(num_trials):
+        idxs = torch.randperm(n=pop_size, dtype=torch.int32, device=device)[:num_samples]
+        idxs += frame_num*pop_size
+        kept_idxs.append(idxs)
+        frame_num += 1
+    return kept_idxs
+
 class Minkowski_Baseline_Model(BaseModel):
     def __init__(self, option, model_type, dataset, modules):
         super(Minkowski_Baseline_Model, self).__init__(option)
@@ -26,18 +37,22 @@ class Minkowski_Baseline_Model(BaseModel):
 
         with Timer(text="Initial index creation: \t{:0.4f}"):
             # randomly downsample 4D points, such that each time step has num_points
-            pts_per_frame = data.pos.shape[0] / len(data.batch.unique()) / len(data.time.unique()) # 90,000 pixels = 300 x 300
+            pts_per_frame = int(data.pos.shape[0] / len(data.batch.unique()) / len(data.time.unique())) # 90,000 pixels = 300 x 300
             assert self.opt.points_per_frame < pts_per_frame
             # always guarantee num_points per frame
-            kept_idxs = []
-            frame_num = 0
-            for b in data.batch.unique():
-                for t in data.time.unique():
-                    probs = torch.ones((int(pts_per_frame)), device=device) / pts_per_frame # equal chance each point selected
-                    idxs = probs.multinomial(num_samples=int(self.opt.points_per_frame), replacement=False)
-                    idxs += int(frame_num*pts_per_frame)
-                    kept_idxs.append(idxs)
-                    frame_num += 1
+            kept_idxs = indices(
+                pop_size=pts_per_frame, 
+                num_samples=self.opt.points_per_frame,
+                num_trials=len(data.batch.unique())*len(data.time.unique()), 
+                device=device)
+            # kept_idxs = []
+            # frame_num = 0
+            # for b in data.batch.unique():
+            #     for t in data.time.unique():
+            #         idxs = torch.randperm(n=pts_per_frame, dtype=torch.int32, device=device)[:self.opt.points_per_frame]
+            #         idxs += frame_num*pts_per_frame
+            #         kept_idxs.append(idxs)
+            #         frame_num += 1
 
         with Timer(text="Data indexing: \t{:0.4f}"):
             self.idx, _ = torch.cat(kept_idxs).sort()
