@@ -10,8 +10,6 @@ from torch_points3d.models.base_model import BaseModel
 
 log = logging.getLogger(__name__)
 
-from timer import Timer
-
 class Minkowski_Baseline_Model(BaseModel):
     def __init__(self, option, model_type, dataset, modules):
         super(Minkowski_Baseline_Model, self).__init__(option)
@@ -124,11 +122,9 @@ class Minkowski_Baseline_Model(BaseModel):
         # self.positions = postorch.Tensor(pos).to(device)
         self.positions = pos
 
-    @Timer(text="forward: \t{:0.4f}")
     def forward(self, *args, **kwargs):
         self.class_logits, self.approach_dir, self.baseline_dir, self.grasp_width = self.model(self.input)
 
-    @Timer(text="_compute_losses: \t{:0.4f}")
     def _compute_losses(self):
 
         add_s = parallel_add_s_loss if self.opt.parallel_add_s else sequential_add_s_loss
@@ -154,12 +150,10 @@ class Minkowski_Baseline_Model(BaseModel):
 
         self.loss_grasp = self.opt.bce_loss_coeff*self.classification_loss + self.opt.add_s_loss_coeff*self.add_s_loss 
 
-    @Timer(text="backward: \t{:0.4f}")
     def backward(self):
         self._compute_losses()
         self.loss_grasp.backward()
 
-@Timer(text="parallel_add_s_loss: \t{:0.4f}")
 def parallel_add_s_loss(approach_dir, baseline_dir, coords, positions, pos_control_points, sym_pos_control_points, gt_grasps_per_batch, single_gripper_points, labels, logits, grasp_width, device) -> torch.Tensor:
     """Compute symmetric ADD-S loss from Contact-GraspNet, finding minimum control-point distances for all time and batch values in parallel."""
     
@@ -199,7 +193,6 @@ def parallel_add_s_loss(approach_dir, baseline_dir, coords, positions, pos_contr
     )
     return loss
 
-@Timer(text="sequential_add_s_loss: \t{:0.4f}")
 def sequential_add_s_loss(approach_dir, baseline_dir, coords, positions, pos_control_points, sym_pos_control_points, gt_grasps_per_batch, single_gripper_points, labels, logits, grasp_width, device) -> torch.Tensor:
     """Un-parallelized implementation of add_s_loss from below. Uses a loop instead of batch/time parallelization to reduce memory requirements. """
 
