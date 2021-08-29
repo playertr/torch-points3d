@@ -12,17 +12,6 @@ log = logging.getLogger(__name__)
 
 from timer import Timer
 
-@torch.jit.script
-def indices(pop_size:int, num_samples:int, num_trials:int, device:torch.device) -> list:
-    kept_idxs = []
-    frame_num = 0
-    for t in range(num_trials):
-        idxs = torch.randperm(n=pop_size, dtype=torch.int32, device=device)[:num_samples]
-        idxs += frame_num*pop_size
-        kept_idxs.append(idxs)
-        frame_num += 1
-    return kept_idxs
-
 class Minkowski_Baseline_Model(BaseModel):
     def __init__(self, option, model_type, dataset, modules):
         super(Minkowski_Baseline_Model, self).__init__(option)
@@ -43,21 +32,6 @@ class Minkowski_Baseline_Model(BaseModel):
             pts_per_frame = int(data.pos.shape[0] / len(data.batch.unique()) / len(data.time.unique())) # 90,000 pixels = 300 x 300
             assert self.opt.points_per_frame < pts_per_frame
             # always guarantee num_points per frame
-
-            kept_idxs = indices(
-                pop_size=pts_per_frame, 
-                num_samples=self.opt.points_per_frame,
-                num_trials=len(data.batch.unique())*len(data.time.unique()), 
-                device=device)
-
-            self.idx, _ = torch.cat(kept_idxs).sort()
-            self.idx = self.idx.long().to(device)
-            
-            batch = data.batch.to(device)[self.idx]
-            time = data.time.to(device)[self.idx]
-            pos = data.pos.to(device)[self.idx]
-            x = data.x.to(device)[self.idx]
-            y = data.y.to(device)[self.idx]
 
         with Timer(text="3D sorting: \t{:0.4f}"):
             inds = torch.argsort(
