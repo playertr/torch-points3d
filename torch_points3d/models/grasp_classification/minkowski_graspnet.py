@@ -38,13 +38,13 @@ class Minkowski_Baseline_Model(BaseModel):
                     frame_num += 1
 
             self.idx, _ = torch.cat(kept_idxs).sort()
-            self.idx = self.idx.long()
+            self.idx = self.idx.long().to(device)
             
-            batch = data.batch[self.idx]
-            time = data.time[self.idx]
-            pos = data.pos[self.idx]
-            x = data.x[self.idx]
-            y = data.y[self.idx]
+            batch = data.batch.to(device)[self.idx]
+            time = data.time.to(device)[self.idx]
+            pos = data.pos.to(device)[self.idx]
+            x = data.x.to(device)[self.idx]
+            y = data.y.to(device)[self.idx]
 
 
         with Timer(text="Minkowski sparse tensor creation: \t{:0.4f}"):
@@ -106,7 +106,8 @@ class Minkowski_Baseline_Model(BaseModel):
                     # else: leave tensor uninitialized; do not use in ADD-S loss.
 
         # Store 3d positions corresponding to coordinates
-        self.positions = torch.Tensor(pos).to(device)
+        # self.positions = postorch.Tensor(pos).to(device)
+        self.positions = pos
 
     @Timer(text="forward: \t{:0.4f}")
     def forward(self, *args, **kwargs):
