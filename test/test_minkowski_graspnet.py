@@ -133,4 +133,4 @@ def run_code(model, loader, optimizer):
     optimizer.step()
 
 
-profile_code(model, loader, optimizer)
+run_code(model, loader, optimizer)

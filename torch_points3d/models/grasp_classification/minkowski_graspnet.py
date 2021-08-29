@@ -10,6 +10,7 @@ from torch_points3d.models.base_model import BaseModel
 
 log = logging.getLogger(__name__)
 
+from timer import Timer
 
 class Minkowski_Baseline_Model(BaseModel):
     def __init__(self, option, model_type, dataset, modules):
@@ -23,89 +24,95 @@ class Minkowski_Baseline_Model(BaseModel):
         self.data = data # store data as instance variable in RAM for visualization
         self.single_gripper_points = data[0].single_gripper_pts.to(device)
 
-        # randomly downsample 4D points, such that each time step has num_points
-        pts_per_frame = data.pos.shape[0] / len(data.batch.unique()) / len(data.time.unique()) # 90,000 pixels = 300 x 300
-        assert self.opt.points_per_frame < pts_per_frame
-        # always guarantee num_points per frame
-        kept_idxs = []
-        frame_num = 0
-        for b in data.batch.unique():
-            for t in data.time.unique():
-                perm = torch.randperm(int(pts_per_frame), device=torch.device("cpu")) + frame_num*pts_per_frame
-                kept_idxs.append(perm[:self.opt.points_per_frame])
-                frame_num += 1
+        with Timer(text="Initial indexing: \t{:0.4f}"):
+            # randomly downsample 4D points, such that each time step has num_points
+            pts_per_frame = data.pos.shape[0] / len(data.batch.unique()) / len(data.time.unique()) # 90,000 pixels = 300 x 300
+            assert self.opt.points_per_frame < pts_per_frame
+            # always guarantee num_points per frame
+            kept_idxs = []
+            frame_num = 0
+            for b in data.batch.unique():
+                for t in data.time.unique():
+                    perm = torch.randperm(int(pts_per_frame), device=torch.device("cpu")) + frame_num*pts_per_frame
+                    kept_idxs.append(perm[:self.opt.points_per_frame])
+                    frame_num += 1
 
-        self.idx, _ = torch.cat(kept_idxs).sort()
-        self.idx = self.idx.long()
-        
-        batch = data.batch[self.idx]
-        time = data.time[self.idx]
-        pos = data.pos[self.idx]
-        x = data.x[self.idx]
-        y = data.y[self.idx]
+            self.idx, _ = torch.cat(kept_idxs).sort()
+            self.idx = self.idx.long()
+            
+            batch = data.batch[self.idx]
+            time = data.time[self.idx]
+            pos = data.pos[self.idx]
+            x = data.x[self.idx]
+            y = data.y[self.idx]
 
-        # quantize position across a voxel grid, truncating decimals
-        quantized_pos = (pos / self.opt.grid_size).int()
 
-        coords = torch.cat([
-            batch.view(-1, 1), 
-            time.view(-1, 1), 
-            quantized_pos,
-            ], dim=1).int().to(device)
+        with Timer(text="Minkowski sparse tensor creation: \t{:0.4f}"):
+            # quantize position across a voxel grid, truncating decimals
+            quantized_pos = (pos / self.opt.grid_size).int()
 
-        features = x.to(device)
+            coords = torch.cat([
+                batch.view(-1, 1), 
+                time.view(-1, 1), 
+                quantized_pos,
+                ], dim=1).int().to(device)
 
-        self.input = ME.SparseTensor(
-            features=features,
-            coordinates=coords,
-            quantization_mode=ME.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE,
-            minkowski_algorithm=ME.MinkowskiAlgorithm.SPEED_OPTIMIZED,
-            device=device)
+            features = x.to(device)
+
+            self.input = ME.SparseTensor(
+                features=features,
+                coordinates=coords,
+                quantization_mode=ME.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE,
+                minkowski_algorithm=ME.MinkowskiAlgorithm.SPEED_OPTIMIZED,
+                device=device)
 
         self.labels = y.to(device)
 
-        # Pack the ground truth control points into a dense tensor.
-        # If the control point tensors are not the same shape, then duplicate entries from the smaller ones until they are the same shape. Because the ADD-S loss considers the minimum distance from a ground truth grasp, duplicating ground truth grasps will not affect the grasp.
+        with Timer(text="Control point densification: \t{:0.4f}"):
+            # Pack the ground truth control points into a dense tensor.
+            # If the control point tensors are not the same shape, then duplicate entries from the smaller ones until they are the same shape. Because the ADD-S loss considers the minimum distance from a ground truth grasp, duplicating ground truth grasps will not affect the grasp.
 
-        cp_shapes = [cp.shape for cp in data.pos_control_points]
-        self.gt_grasps_per_batch = [shape[1] for shape in cp_shapes]
-        self.pos_control_points = torch.empty((
-            len(batch.unique()),
-            len(time.unique()),
-            max(self.gt_grasps_per_batch),
-            5,
-            3
-        ), device=device)
-        self.sym_pos_control_points = torch.empty((
-            len(batch.unique()),
-            len(time.unique()),
-            max(self.gt_grasps_per_batch),
-            5,
-            3
-        ), device=device)
+            cp_shapes = [cp.shape for cp in data.pos_control_points]
+            self.gt_grasps_per_batch = [shape[1] for shape in cp_shapes]
+            self.pos_control_points = torch.empty((
+                len(batch.unique()),
+                len(time.unique()),
+                max(self.gt_grasps_per_batch),
+                5,
+                3
+            ), device=device)
+            self.sym_pos_control_points = torch.empty((
+                len(batch.unique()),
+                len(time.unique()),
+                max(self.gt_grasps_per_batch),
+                5,
+                3
+            ), device=device)
 
-        # Pad control point tensors by repeating if different.
-        if not reduce(np.array_equal, cp_shapes):
-            for i in range(len(data.pos_control_points)):
-                if self.gt_grasps_per_batch[i] > 0:
-                    idxs = list(range(self.gt_grasps_per_batch[i]))
-                    idxs = idxs + [0]*(max(self.gt_grasps_per_batch) - self.gt_grasps_per_batch[i])
-                    self.pos_control_points[i] = torch.from_numpy(data.pos_control_points[i][:,idxs,:,:]).to(device)
-                    self.sym_pos_control_points[i] = torch.from_numpy(data.sym_pos_control_points[i][:,idxs,:,:]).to(device)
-                # else: leave tensor uninitialized; do not use in ADD-S loss.
-        else:
-            for i in range(len(data.pos_control_points)):
-                if self.gt_grasps_per_batch[i] > 0:
-                    self.pos_control_points[i] = torch.from_numpy(data.pos_control_points[i]).to(device)
-                    self.sym_pos_control_points[i] = torch.from_numpy(data.sym_pos_control_points[i]).to(device)
-                # else: leave tensor uninitialized; do not use in ADD-S loss.
+            # Pad control point tensors by repeating if different.
+            if not reduce(np.array_equal, cp_shapes):
+                for i in range(len(data.pos_control_points)):
+                    if self.gt_grasps_per_batch[i] > 0:
+                        idxs = list(range(self.gt_grasps_per_batch[i]))
+                        idxs = idxs + [0]*(max(self.gt_grasps_per_batch) - self.gt_grasps_per_batch[i])
+                        self.pos_control_points[i] = torch.from_numpy(data.pos_control_points[i][:,idxs,:,:]).to(device)
+                        self.sym_pos_control_points[i] = torch.from_numpy(data.sym_pos_control_points[i][:,idxs,:,:]).to(device)
+                    # else: leave tensor uninitialized; do not use in ADD-S loss.
+            else:
+                for i in range(len(data.pos_control_points)):
+                    if self.gt_grasps_per_batch[i] > 0:
+                        self.pos_control_points[i] = torch.from_numpy(data.pos_control_points[i]).to(device)
+                        self.sym_pos_control_points[i] = torch.from_numpy(data.sym_pos_control_points[i]).to(device)
+                    # else: leave tensor uninitialized; do not use in ADD-S loss.
 
         # Store 3d positions corresponding to coordinates
         self.positions = torch.Tensor(pos).to(device)
 
+    @Timer(text="forward: \t{:0.4f}")
     def forward(self, *args, **kwargs):
         self.class_logits, self.approach_dir, self.baseline_dir, self.grasp_width = self.model(self.input)
 
+    @Timer(text="_compute_losses: \t{:0.4f}")
     def _compute_losses(self):
 
         add_s = parallel_add_s_loss if self.opt.parallel_add_s else sequential_add_s_loss
@@ -131,10 +138,12 @@ class Minkowski_Baseline_Model(BaseModel):
 
         self.loss_grasp = self.opt.bce_loss_coeff*self.classification_loss + self.opt.add_s_loss_coeff*self.add_s_loss 
 
+    @Timer(text="backward: \t{:0.4f}")
     def backward(self):
         self._compute_losses()
         self.loss_grasp.backward()
 
+@Timer(text="parallel_add_s_loss: \t{:0.4f}")
 def parallel_add_s_loss(approach_dir, baseline_dir, coords, positions, pos_control_points, sym_pos_control_points, gt_grasps_per_batch, single_gripper_points, labels, logits, grasp_width, device) -> torch.Tensor:
     """Compute symmetric ADD-S loss from Contact-GraspNet, finding minimum control-point distances for all time and batch values in parallel."""
     
@@ -174,6 +183,7 @@ def parallel_add_s_loss(approach_dir, baseline_dir, coords, positions, pos_contr
     )
     return loss
 
+@Timer(text="sequential_add_s_loss: \t{:0.4f}")
 def sequential_add_s_loss(approach_dir, baseline_dir, coords, positions, pos_control_points, sym_pos_control_points, gt_grasps_per_batch, single_gripper_points, labels, logits, grasp_width, device) -> torch.Tensor:
     """Un-parallelized implementation of add_s_loss from below. Uses a loop instead of batch/time parallelization to reduce memory requirements. """
 
