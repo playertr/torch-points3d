@@ -35,26 +35,21 @@ class Minkowski_Baseline_Model(BaseModel):
         self.data = data # store data as instance variable in RAM for visualization
         self.single_gripper_points = data[0].single_gripper_pts.to(device)
 
+        n_batch = len(data.batch.unique())
+        n_time = len(data.time.unique())
+
         with Timer(text="Initial index creation: \t{:0.4f}"):
             # randomly downsample 4D points, such that each time step has num_points
             pts_per_frame = int(data.pos.shape[0] / len(data.batch.unique()) / len(data.time.unique())) # 90,000 pixels = 300 x 300
             assert self.opt.points_per_frame < pts_per_frame
             # always guarantee num_points per frame
+
             kept_idxs = indices(
                 pop_size=pts_per_frame, 
                 num_samples=self.opt.points_per_frame,
                 num_trials=len(data.batch.unique())*len(data.time.unique()), 
                 device=device)
-            # kept_idxs = []
-            # frame_num = 0
-            # for b in data.batch.unique():
-            #     for t in data.time.unique():
-            #         idxs = torch.randperm(n=pts_per_frame, dtype=torch.int32, device=device)[:self.opt.points_per_frame]
-            #         idxs += frame_num*pts_per_frame
-            #         kept_idxs.append(idxs)
-            #         frame_num += 1
 
-        with Timer(text="Data indexing: \t{:0.4f}"):
             self.idx, _ = torch.cat(kept_idxs).sort()
             self.idx = self.idx.long().to(device)
             
@@ -64,7 +59,38 @@ class Minkowski_Baseline_Model(BaseModel):
             x = data.x.to(device)[self.idx]
             y = data.y.to(device)[self.idx]
 
+        with Timer(text="3D sorting: \t{:0.4f}"):
+            inds = torch.argsort(
+                torch.rand((n_batch, n_time, pts_per_frame), device=device), 
+                dim=2)[:,:,:self.opt.points_per_frame]
 
+            def index_1d_tensor(t, inds):
+                """Turn a 1D tensor into a (n_batch, n_time, pts_per_frame) 3D tensor, then apply the 3D indexing. Return flattened output."""
+                t = t.view(n_batch, n_time, -1)
+                t = t[
+                    torch.arange(n_batch).view(-1, 1, 1),
+                    torch.arange(n_time).view(1, -1, 1),
+                    inds 
+                ]
+                return t.view(-1, 1)
+            
+            def index_3d_tensor(t, inds):
+                """Turn a (n_batch*n_time*pts_per_frame, 3) tensor into a (n_batch, n_time, pts_per_frame, 3) 4D tensor, then apply the 3D indexing. Return flattened output."""
+                t = t.view(n_batch, n_time, -1, 3)
+                t = t[
+                    torch.arange(n_batch).view(-1, 1, 1, 1),
+                    torch.arange(n_time).view(1, -1, 1, 1),
+                    inds.unsqueeze(-1),
+                    torch.arange(3).view(1, 1, 1, -1) 
+                ]
+                return t.view(-1, 3)
+            
+            batch = index_1d_tensor(data.batch.to(device), inds)
+            time = index_1d_tensor(data.time.to(device), inds)
+            pos = index_3d_tensor(data.pos.to(device), inds)
+            x = index_1d_tensor(data.x.to(device), inds).view(-1, 1)
+            y = index_1d_tensor(data.y.to(device), inds).view(-1, 1)
+            
         with Timer(text="Minkowski sparse tensor creation: \t{:0.4f}"):
             # quantize position across a voxel grid, truncating decimals
             quantized_pos = (pos / self.opt.grid_size).int()
