@@ -27,101 +27,98 @@ class Minkowski_Baseline_Model(BaseModel):
         n_batch = len(data.batch.unique())
         n_time = len(data.time.unique())
 
-        with Timer(text="Initial index creation: \t{:0.4f}"):
-            # randomly downsample 4D points, such that each time step has num_points
-            pts_per_frame = int(data.pos.shape[0] / len(data.batch.unique()) / len(data.time.unique())) # 90,000 pixels = 300 x 300
-            assert self.opt.points_per_frame < pts_per_frame
-            # always guarantee num_points per frame
+        # randomly downsample 4D points, such that each time step has num_points
+        pts_per_frame = int(data.pos.shape[0] / len(data.batch.unique()) / len(data.time.unique())) # 90,000 pixels = 300 x 300
+        assert self.opt.points_per_frame < pts_per_frame
+        # always guarantee num_points per frame
 
-        with Timer(text="3D sorting: \t{:0.4f}"):
-            inds = torch.argsort(
-                torch.rand((n_batch, n_time, pts_per_frame), device=device), 
-                dim=2)[:,:,:self.opt.points_per_frame]
+    
+        inds = torch.argsort(
+            torch.rand((n_batch, n_time, pts_per_frame), device=device), 
+            dim=2)[:,:,:self.opt.points_per_frame]
 
-            def index_1d_tensor(t, inds):
-                """Turn a 1D tensor into a (n_batch, n_time, pts_per_frame) 3D tensor, then apply the 3D indexing. Return flattened output."""
-                t = t.view(n_batch, n_time, -1)
-                t = t[
-                    torch.arange(n_batch).view(-1, 1, 1),
-                    torch.arange(n_time).view(1, -1, 1),
-                    inds 
-                ]
-                return t.view(-1, 1)
+        def index_1d_tensor(t, inds):
+            """Turn a 1D tensor into a (n_batch, n_time, pts_per_frame) 3D tensor, then apply the 3D indexing. Return flattened output."""
+            t = t.view(n_batch, n_time, -1)
+            t = t[
+                torch.arange(n_batch).view(-1, 1, 1),
+                torch.arange(n_time).view(1, -1, 1),
+                inds 
+            ]
+            return t.view(-1, 1)
+        
+        def index_3d_tensor(t, inds):
+            """Turn a (n_batch*n_time*pts_per_frame, 3) tensor into a (n_batch, n_time, pts_per_frame, 3) 4D tensor, then apply the 3D indexing. Return flattened output."""
+            t = t.view(n_batch, n_time, -1, 3)
+            t = t[
+                torch.arange(n_batch).view(-1, 1, 1, 1),
+                torch.arange(n_time).view(1, -1, 1, 1),
+                inds.unsqueeze(-1),
+                torch.arange(3).view(1, 1, 1, -1) 
+            ]
+            return t.view(-1, 3)
+        
+        batch = index_1d_tensor(data.batch.to(device), inds)
+        time = index_1d_tensor(data.time.to(device), inds)
+        pos = index_3d_tensor(data.pos.to(device), inds)
+        x = index_1d_tensor(data.x.to(device), inds).view(-1, 1)
+        y = index_1d_tensor(data.y.to(device), inds).view(-1, 1)
             
-            def index_3d_tensor(t, inds):
-                """Turn a (n_batch*n_time*pts_per_frame, 3) tensor into a (n_batch, n_time, pts_per_frame, 3) 4D tensor, then apply the 3D indexing. Return flattened output."""
-                t = t.view(n_batch, n_time, -1, 3)
-                t = t[
-                    torch.arange(n_batch).view(-1, 1, 1, 1),
-                    torch.arange(n_time).view(1, -1, 1, 1),
-                    inds.unsqueeze(-1),
-                    torch.arange(3).view(1, 1, 1, -1) 
-                ]
-                return t.view(-1, 3)
-            
-            batch = index_1d_tensor(data.batch.to(device), inds)
-            time = index_1d_tensor(data.time.to(device), inds)
-            pos = index_3d_tensor(data.pos.to(device), inds)
-            x = index_1d_tensor(data.x.to(device), inds).view(-1, 1)
-            y = index_1d_tensor(data.y.to(device), inds).view(-1, 1)
-            
-        with Timer(text="Minkowski sparse tensor creation: \t{:0.4f}"):
-            # quantize position across a voxel grid, truncating decimals
-            quantized_pos = (pos / self.opt.grid_size).int()
+        # quantize position across a voxel grid, truncating decimals
+        quantized_pos = (pos / self.opt.grid_size).int()
 
-            coords = torch.cat([
-                batch.view(-1, 1), 
-                time.view(-1, 1), 
-                quantized_pos,
-                ], dim=1).int().to(device)
+        coords = torch.cat([
+            batch.view(-1, 1), 
+            time.view(-1, 1), 
+            quantized_pos,
+            ], dim=1).int()
 
-            features = x.to(device)
+        features = x
 
-            self.input = ME.SparseTensor(
-                features=features,
-                coordinates=coords,
-                quantization_mode=ME.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE,
-                minkowski_algorithm=ME.MinkowskiAlgorithm.SPEED_OPTIMIZED,
-                device=device)
+        self.input = ME.SparseTensor(
+            features=features,
+            coordinates=coords,
+            quantization_mode=ME.SparseTensorQuantizationMode.RANDOM_SUBSAMPLE,
+            minkowski_algorithm=ME.MinkowskiAlgorithm.SPEED_OPTIMIZED,
+            device=device)
 
-        self.labels = y.to(device)
+        self.labels = y
 
-        with Timer(text="Control point densification: \t{:0.4f}"):
-            # Pack the ground truth control points into a dense tensor.
-            # If the control point tensors are not the same shape, then duplicate entries from the smaller ones until they are the same shape. Because the ADD-S loss considers the minimum distance from a ground truth grasp, duplicating ground truth grasps will not affect the grasp.
+        # Pack the ground truth control points into a dense tensor.
+        # If the control point tensors are not the same shape, then duplicate entries from the smaller ones until they are the same shape. Because the ADD-S loss considers the minimum distance from a ground truth grasp, duplicating ground truth grasps will not affect the grasp.
 
-            cp_shapes = [cp.shape for cp in data.pos_control_points]
-            self.gt_grasps_per_batch = [shape[1] for shape in cp_shapes]
-            self.pos_control_points = torch.empty((
-                len(batch.unique()),
-                len(time.unique()),
-                max(self.gt_grasps_per_batch),
-                5,
-                3
-            ), device=device)
-            self.sym_pos_control_points = torch.empty((
-                len(batch.unique()),
-                len(time.unique()),
-                max(self.gt_grasps_per_batch),
-                5,
-                3
-            ), device=device)
+        cp_shapes = [cp.shape for cp in data.pos_control_points]
+        self.gt_grasps_per_batch = [shape[1] for shape in cp_shapes]
+        self.pos_control_points = torch.empty((
+            len(batch.unique()),
+            len(time.unique()),
+            max(self.gt_grasps_per_batch),
+            5,
+            3
+        ), device=device)
+        self.sym_pos_control_points = torch.empty((
+            len(batch.unique()),
+            len(time.unique()),
+            max(self.gt_grasps_per_batch),
+            5,
+            3
+        ), device=device)
 
-            # Pad control point tensors by repeating if different.
-            if not reduce(np.array_equal, cp_shapes):
-                for i in range(len(data.pos_control_points)):
-                    if self.gt_grasps_per_batch[i] > 0:
-                        idxs = list(range(self.gt_grasps_per_batch[i]))
-                        idxs = idxs + [0]*(max(self.gt_grasps_per_batch) - self.gt_grasps_per_batch[i])
-                        self.pos_control_points[i] = torch.from_numpy(data.pos_control_points[i][:,idxs,:,:]).to(device)
-                        self.sym_pos_control_points[i] = torch.from_numpy(data.sym_pos_control_points[i][:,idxs,:,:]).to(device)
-                    # else: leave tensor uninitialized; do not use in ADD-S loss.
-            else:
-                for i in range(len(data.pos_control_points)):
-                    if self.gt_grasps_per_batch[i] > 0:
-                        self.pos_control_points[i] = torch.from_numpy(data.pos_control_points[i]).to(device)
-                        self.sym_pos_control_points[i] = torch.from_numpy(data.sym_pos_control_points[i]).to(device)
-                    # else: leave tensor uninitialized; do not use in ADD-S loss.
+        # Pad control point tensors by repeating if different.
+        if not reduce(np.array_equal, cp_shapes):
+            for i in range(len(data.pos_control_points)):
+                if self.gt_grasps_per_batch[i] > 0:
+                    idxs = list(range(self.gt_grasps_per_batch[i]))
+                    idxs = idxs + [0]*(max(self.gt_grasps_per_batch) - self.gt_grasps_per_batch[i])
+                    self.pos_control_points[i] = torch.from_numpy(data.pos_control_points[i][:,idxs,:,:]).to(device)
+                    self.sym_pos_control_points[i] = torch.from_numpy(data.sym_pos_control_points[i][:,idxs,:,:]).to(device)
+                # else: leave tensor uninitialized; do not use in ADD-S loss.
+        else:
+            for i in range(len(data.pos_control_points)):
+                if self.gt_grasps_per_batch[i] > 0:
+                    self.pos_control_points[i] = torch.from_numpy(data.pos_control_points[i]).to(device)
+                    self.sym_pos_control_points[i] = torch.from_numpy(data.sym_pos_control_points[i]).to(device)
+                # else: leave tensor uninitialized; do not use in ADD-S loss.
 
         # Store 3d positions corresponding to coordinates
         # self.positions = postorch.Tensor(pos).to(device)
