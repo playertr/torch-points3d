@@ -33,13 +33,13 @@ class Minkowski_Baseline_Model(BaseModel):
             frame_num = 0
             for b in data.batch.unique():
                 for t in data.time.unique():
-                    perm = torch.randperm(int(pts_per_frame), device=torch.device("cpu")) + frame_num*pts_per_frame
+                    perm = torch.randperm(int(pts_per_frame), device=device) + frame_num*pts_per_frame
                     kept_idxs.append(perm[:self.opt.points_per_frame])
                     frame_num += 1
 
         with Timer(text="Data indexing: \t{:0.4f}"):
             self.idx, _ = torch.cat(kept_idxs).sort()
-            self.idx = self.idx.long().to(device)
+            self.idx = self.idx.long()
             
             batch = data.batch.to(device)[self.idx]
             time = data.time.to(device)[self.idx]
