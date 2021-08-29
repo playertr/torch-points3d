@@ -24,7 +24,7 @@ class Minkowski_Baseline_Model(BaseModel):
         self.data = data # store data as instance variable in RAM for visualization
         self.single_gripper_points = data[0].single_gripper_pts.to(device)
 
-        with Timer(text="Initial indexing: \t{:0.4f}"):
+        with Timer(text="Initial index creation: \t{:0.4f}"):
             # randomly downsample 4D points, such that each time step has num_points
             pts_per_frame = data.pos.shape[0] / len(data.batch.unique()) / len(data.time.unique()) # 90,000 pixels = 300 x 300
             assert self.opt.points_per_frame < pts_per_frame
@@ -37,6 +37,7 @@ class Minkowski_Baseline_Model(BaseModel):
                     kept_idxs.append(perm[:self.opt.points_per_frame])
                     frame_num += 1
 
+        with Timer(text="Data indexing: \t{:0.4f}"):
             self.idx, _ = torch.cat(kept_idxs).sort()
             self.idx = self.idx.long().to(device)
             
