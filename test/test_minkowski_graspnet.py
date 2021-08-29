@@ -13,7 +13,7 @@ data:
     task: grasp_classification
     class: acronymvid.AcronymVidDataset
     name: acronymvid
-    dataroot: /home/tim/Research/GraspRefinement/data
+    dataroot: /playert/GraspRefinement/data
     process_workers: 8
 
 models:
@@ -27,6 +27,7 @@ models:
     bce_loss_coeff: 1
     grid_size: 0.005
     points_per_frame: 500
+    parallel_add_s: True
 """
 
 from omegaconf import OmegaConf
@@ -59,8 +60,6 @@ t0a = time.time()
 print(f"Time to push model to device: \t{t0a - tic}")
 
 optimizer = torch.optim.SGD(model.parameters(), lr=0.00001, momentum=0.2)
-t0b = time.time()
-print(f"Time to initialize optimizer: \t{t0b - t0a}")
 
 ########### Profile
 def profile_code(model, loader, optimizer):
@@ -89,6 +88,7 @@ def time_code(model, loader, optimizer):
   tot_times = []
 
   for i in range(10):
+    print(i)
 
     data = next(iter(loader))
     # optimizer.zero_grad()
@@ -132,8 +132,5 @@ def run_code(model, loader, optimizer):
     model.backward()
     optimizer.step()
 
-i = 0
-while(True):
-  print(i)
-  run_code(model, loader, optimizer)
-  i += 1
+
+profile_code(model, loader, optimizer)

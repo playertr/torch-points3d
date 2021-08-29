@@ -37,10 +37,7 @@ class Minkowski_Baseline_Model(BaseModel):
 
         self.idx, _ = torch.cat(kept_idxs).sort()
         self.idx = self.idx.long()
-        # perm = torch.randperm(data.pos.shape[0])
-        # self.idx = perm[:self.opt.num_points]
-        # self.idx, _ = self.idx.sort()
-
+        
         batch = data.batch[self.idx]
         time = data.time[self.idx]
         pos = data.pos[self.idx]
@@ -51,8 +48,8 @@ class Minkowski_Baseline_Model(BaseModel):
         quantized_pos = (pos / self.opt.grid_size).int()
 
         coords = torch.cat([
-            batch.reshape(-1, 1), 
-            time.reshape(-1, 1), 
+            batch.view(-1, 1), 
+            time.view(-1, 1), 
             quantized_pos,
             ], dim=1).int().to(device)
 
@@ -71,18 +68,18 @@ class Minkowski_Baseline_Model(BaseModel):
         # If the control point tensors are not the same shape, then duplicate entries from the smaller ones until they are the same shape. Because the ADD-S loss considers the minimum distance from a ground truth grasp, duplicating ground truth grasps will not affect the grasp.
 
         cp_shapes = [cp.shape for cp in data.pos_control_points]
-        num_pos_grasps = [shape[1] for shape in cp_shapes]
+        self.gt_grasps_per_batch = [shape[1] for shape in cp_shapes]
         self.pos_control_points = torch.empty((
             len(batch.unique()),
             len(time.unique()),
-            max(num_pos_grasps),
+            max(self.gt_grasps_per_batch),
             5,
             3
         ), device=device)
         self.sym_pos_control_points = torch.empty((
             len(batch.unique()),
             len(time.unique()),
-            max(num_pos_grasps),
+            max(self.gt_grasps_per_batch),
             5,
             3
         ), device=device)
@@ -90,16 +87,18 @@ class Minkowski_Baseline_Model(BaseModel):
         # Pad control point tensors by repeating if different.
         if not reduce(np.array_equal, cp_shapes):
             for i in range(len(data.pos_control_points)):
-                if num_pos_grasps[i] > 0:
-                    idxs = list(range(num_pos_grasps[i]))
-                    idxs = idxs + [0]*(max(num_pos_grasps) - num_pos_grasps[i])
+                if self.gt_grasps_per_batch[i] > 0:
+                    idxs = list(range(self.gt_grasps_per_batch[i]))
+                    idxs = idxs + [0]*(max(self.gt_grasps_per_batch) - self.gt_grasps_per_batch[i])
                     self.pos_control_points[i] = torch.from_numpy(data.pos_control_points[i][:,idxs,:,:]).to(device)
                     self.sym_pos_control_points[i] = torch.from_numpy(data.sym_pos_control_points[i][:,idxs,:,:]).to(device)
+                # else: leave tensor uninitialized; do not use in ADD-S loss.
         else:
             for i in range(len(data.pos_control_points)):
-                if num_pos_grasps[i] > 0:
+                if self.gt_grasps_per_batch[i] > 0:
                     self.pos_control_points[i] = torch.from_numpy(data.pos_control_points[i]).to(device)
                     self.sym_pos_control_points[i] = torch.from_numpy(data.sym_pos_control_points[i]).to(device)
+                # else: leave tensor uninitialized; do not use in ADD-S loss.
 
         # Store 3d positions corresponding to coordinates
         self.positions = torch.Tensor(pos).to(device)
@@ -109,19 +108,21 @@ class Minkowski_Baseline_Model(BaseModel):
 
     def _compute_losses(self):
 
-        add_s = add_s_loss if self.opt.parallel_add_s else sequential_add_s_loss
-        self.add_s_loss =add_s(
+        add_s = parallel_add_s_loss if self.opt.parallel_add_s else sequential_add_s_loss
+        self.add_s_loss = add_s(
             approach_dir = self.approach_dir, 
             baseline_dir = self.baseline_dir, 
             coords = self.input.coordinates[self.input.inverse_mapping], 
             positions = self.positions,
             pos_control_points = self.pos_control_points,
             sym_pos_control_points = self.sym_pos_control_points,
+            gt_grasps_per_batch = self.gt_grasps_per_batch,
             single_gripper_points = self.single_gripper_points,
             labels = self.labels,
             logits = self.class_logits,
             grasp_width = self.grasp_width,
-            device = self.device)
+            device = self.device
+        )
 
         self.classification_loss = F.binary_cross_entropy_with_logits(
             self.class_logits,
@@ -134,7 +135,46 @@ class Minkowski_Baseline_Model(BaseModel):
         self._compute_losses()
         self.loss_grasp.backward()
 
-def sequential_add_s_loss(approach_dir, baseline_dir, coords, positions, pos_control_points, sym_pos_control_points, single_gripper_points, labels, logits, grasp_width, device) -> torch.Tensor:
+def parallel_add_s_loss(approach_dir, baseline_dir, coords, positions, pos_control_points, sym_pos_control_points, gt_grasps_per_batch, single_gripper_points, labels, logits, grasp_width, device) -> torch.Tensor:
+    """Compute symmetric ADD-S loss from Contact-GraspNet, finding minimum control-point distances for all time and batch values in parallel."""
+    
+    if min(gt_grasps_per_batch) == 0:
+        # one of the batches has no ground truth grasps; fall back to non-parallelized ADD-S computation so that the other batches can still contribute to the loss.
+        return sequential_add_s_loss(approach_dir, baseline_dir, coords, positions, pos_control_points, sym_pos_control_points, gt_grasps_per_batch, single_gripper_points, labels, logits, grasp_width, device)
+
+    ## Package each grasp parameter P into a regular, dense Tensor of shape
+    # (BATCH, TIME, N_PRED_GRASP, *P.shape)
+    n_batch = len(coords[:,0].unique())
+    n_time = len(coords[:,1].unique())
+    approach_dir = approach_dir.view(n_batch, n_time, -1, 3)
+    baseline_dir = baseline_dir.view(n_batch, n_time, -1, 3)
+    positions = positions.view(n_batch, n_time, -1, 3)
+    grasp_width = grasp_width.view(n_batch, n_time, -1, 1)
+
+    ## Construct control points for the predicted grasps, where label is True.
+    pred_cp = control_point_tensor(
+        approach_dir,
+        baseline_dir,
+        positions,
+        grasp_width,
+        single_gripper_points,
+        device
+    )
+
+    ## Find the minimum pairwise distance from each predicted grasp to the ground truth grasps.
+    dists = torch.minimum(
+        approx_min_dists(pred_cp, pos_control_points),
+        approx_min_dists(pred_cp, sym_pos_control_points)
+    )
+
+    loss = torch.mean(
+        torch.sigmoid(logits) * # weight by confidence
+        labels *                # only backprop positives
+        dists.view(-1)          # weight by distance
+    )
+    return loss
+
+def sequential_add_s_loss(approach_dir, baseline_dir, coords, positions, pos_control_points, sym_pos_control_points, gt_grasps_per_batch, single_gripper_points, labels, logits, grasp_width, device) -> torch.Tensor:
     """Un-parallelized implementation of add_s_loss from below. Uses a loop instead of batch/time parallelization to reduce memory requirements. """
 
     ## Package each grasp parameter P into a regular, dense Tensor of shape
@@ -156,15 +196,28 @@ def sequential_add_s_loss(approach_dir, baseline_dir, coords, positions, pos_con
         device
     )
 
-    logits = logits.reshape((n_batch, n_time, -1))
-    labels = labels.reshape((n_batch, n_time, -1))
+    logits = logits.view((n_batch, n_time, -1))
+    labels = labels.view((n_batch, n_time, -1))
     loss = torch.zeros(1, device=device)
     for b in range(n_batch):
+        
+        if gt_grasps_per_batch[b] == 0:
+            # This has no ground truth grasps; do not backprop ADD-S loss for this batch.
+            loss += 0.0
+            break
+
         for t in range(n_time):
             ## Find the minimum pairwise distance from each predicted grasp to the ground truth grasps.
-            dists = approx_min_dists(
+
+            dists = torch.minimum(
+                approx_min_dists(
+                    pred_cp[b][t][None, None, :], 
+                    pos_control_points[b][t][None, None, :]
+                ),
+                approx_min_dists(
                 pred_cp[b][t][None, None, :], 
-                pos_control_points[b][t][None, None, :]
+                sym_pos_control_points[b][t][None, None, :]
+                )
             )
 
             loss += torch.mean(
@@ -173,37 +226,6 @@ def sequential_add_s_loss(approach_dir, baseline_dir, coords, positions, pos_con
                 dists.view(-1)                  # weight by distance
             )
     return loss / (n_batch * n_time)
-
-def add_s_loss(approach_dir, baseline_dir, coords, positions, pos_control_points, sym_pos_control_points, single_gripper_points, labels, logits, grasp_width, device) -> torch.Tensor:
-    
-    ## Package each grasp parameter P into a regular, dense Tensor of shape
-    # (BATCH, TIME, N_PRED_GRASP, *P.shape)
-    n_batch = len(coords[:,0].unique())
-    n_time = len(coords[:,1].unique())
-    approach_dir = approach_dir.view(n_batch, n_time, -1, 3)
-    baseline_dir = baseline_dir.view(n_batch, n_time, -1, 3)
-    positions = positions.view(n_batch, n_time, -1, 3)
-    grasp_width = grasp_width.view(n_batch, n_time, -1, 1)
-
-    ## Construct control points for the predicted grasps, where label is True.
-    pred_cp = control_point_tensor(
-        approach_dir,
-        baseline_dir,
-        positions,
-        grasp_width,
-        single_gripper_points,
-        device
-    )
-
-    ## Find the minimum pairwise distance from each predicted grasp to the ground truth grasps.
-    dists = approx_min_dists(pred_cp, pos_control_points)
-
-    loss = torch.mean(
-        torch.sigmoid(logits) * # weight by confidence
-        labels *                # only backprop positives
-        dists.view(-1)           # weight by distance
-    )
-    return loss
 
 def approx_min_dists(pred_cp, gt_cp):
     """Find the approximate minimum average distance of each control-point-tensor in `pred_cp` from any of the control-point-tensors in `gt_cp`.
